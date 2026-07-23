@@ -382,27 +382,60 @@ function renderCards() {
     '</div>';
 }
 
+function ensureJsBarcode(cb) {
+  if (typeof JsBarcode !== 'undefined') { cb(true); return; }
+  // Primary CDN blocked or slow - try a second one before giving up.
+  var s = document.createElement('script');
+  s.src = 'https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js';
+  s.onload = function () { cb(typeof JsBarcode !== 'undefined'); };
+  s.onerror = function () { cb(false); };
+  document.head.appendChild(s);
+}
+
 function drawBarcodes() {
-  if (state.tab !== 'cards' || typeof JsBarcode === 'undefined') return;
+  if (state.tab !== 'cards') return;
   var stEl = document.getElementById('stationCards');
   var stfEl = document.getElementById('staffCards');
-  if (stEl) {
-    stEl.innerHTML = state.stations.map(function (s, i) {
-      return '<div class="print-card"><div class="label">' + esc(s) + '</div><svg id="stc' + i + '"></svg></div>';
-    }).join('');
+  if (!stEl || !stfEl) return;
+
+  // Draw the cards first, so labels are visible even if barcodes fail.
+  stEl.innerHTML = state.stations.length
+    ? state.stations.map(function (s, i) {
+        return '<div class="print-card"><div class="label">' + esc(s) + '</div>' +
+               '<svg id="stc' + i + '"></svg><div class="sub">STATION:' + esc(s) + '</div></div>';
+      }).join('')
+    : '<div class="empty">No stations added yet. Add them on the Setup tab.</div>';
+
+  stfEl.innerHTML = state.staff.length
+    ? state.staff.map(function (s, i) {
+        return '<div class="print-card"><div class="label">' + esc(s.name) + '</div>' +
+               '<svg id="stfc' + i + '"></svg><div class="sub">' + esc(s.id) + '</div></div>';
+      }).join('')
+    : '<div class="empty">No employees added yet. Add them on the Setup tab.</div>';
+
+  ensureJsBarcode(function (ok) {
+    if (!ok) {
+      var msg = '<div class="panel" style="border-color:var(--danger-border);background:var(--danger-dim);">' +
+        '<div class="panel-title" style="color:var(--danger);">Barcode library did not load</div>' +
+        'The barcode generator is fetched from the internet. This PC could not reach it - check the connection ' +
+        'or the network filter, then reload the page. Card names are shown above without barcodes.</div>';
+      var area = document.getElementById('printArea');
+      if (area && !document.getElementById('bcWarn')) {
+        var d = document.createElement('div');
+        d.id = 'bcWarn';
+        d.innerHTML = msg;
+        area.insertBefore(d, area.firstChild);
+      }
+      return;
+    }
+    var opts = { format: 'CODE128', width: 2, height: 60, displayValue: false, margin: 6 };
     state.stations.forEach(function (s, i) {
-      JsBarcode('#stc' + i, 'STATION:' + s, { format: 'CODE128', width: 2, height: 60, displayValue: false });
+      try { JsBarcode('#stc' + i, 'STATION:' + s, opts); } catch (e) {}
     });
-  }
-  if (stfEl) {
-    stfEl.innerHTML = state.staff.map(function (s, i) {
-      return '<div class="print-card"><div class="label">' + esc(s.name) + '</div><svg id="stfc' + i + '"></svg>' +
-             '<div class="sub" style="margin-top:6px;">' + esc(s.id) + '</div></div>';
-    }).join('');
     state.staff.forEach(function (s, i) {
-      JsBarcode('#stfc' + i, 'STAFF:' + s.id, { format: 'CODE128', width: 2, height: 60, displayValue: false });
+      try { JsBarcode('#stfc' + i, 'STAFF:' + s.id, opts); } catch (e) {}
     });
-  }
+  });
 }
 
 /* ---------------- Shell ---------------- */
@@ -453,7 +486,7 @@ function render() {
 }
 
 /* ---------------- Boot ---------------- */
-if (!CONFIG.ADMIN_PIN) state.unlocked = true;
+
 try {
   if (sessionStorage.getItem('plt_admin') === '1') state.unlocked = true;
 } catch (e) {}
