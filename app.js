@@ -556,7 +556,7 @@ function renderDashboardTab() {
 
   return statCards +
     '<div class="panel"><div class="panel-title">All Packs</div>' +
-    '<div style="margin-bottom:14px;"><input style="width:100%;background:var(--panel-alt);border:1px solid var(--border);color:var(--text);padding:10px 12px;border-radius:8px;font-size:14px;" ' +
+    '<div style="margin-bottom:14px;"><input class="search-input" ' +
     'placeholder="Search pack ID..." oninput="setSearch(this.value)" value="' + esc(state.search) + '"></div>' +
     (state.viewPacks.length
       ? '<div class="table-wrap"><table><thead><tr><th>Pack ID</th><th>Current Stage</th><th>Last Operator</th><th>Last Updated</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
