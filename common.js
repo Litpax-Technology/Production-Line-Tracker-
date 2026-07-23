@@ -50,7 +50,6 @@ function jsonp(params) {
 function call(action, params) {
   var p = params || {};
   p.action = action;
-  p.floor = CONFIG.FLOOR || '';
   state.pending = (state.pending || 0) + 1;
   updateConn();
   return jsonp(p).then(function (res) {
@@ -96,6 +95,42 @@ function updateConn() {
   } else {
     dot.className = 'conn-dot';
     txt.textContent = 'Connected - ' + (CONFIG.FLOOR || 'no floor set');
+  }
+}
+
+/* ---------------- Settings from the Sheet ---------------- */
+
+function sBool(v, d) {
+  if (v === undefined || v === null || v === '') return d;
+  var t = String(v).trim().toLowerCase();
+  return t === 'true' || t === 'yes' || t === '1' || t === 'y';
+}
+
+function sNum(v, d) {
+  var n = parseFloat(v);
+  return isNaN(n) ? d : n;
+}
+
+/** Copies the Settings sheet values onto CONFIG so the rest of the code reads one place. */
+function applySettings(st) {
+  st = st || {};
+  CONFIG.FLOOR             = st.Floor || 'Floor-1';
+  CONFIG.APP_TITLE         = st.AppTitle || 'Pack Line Tracker';
+  CONFIG.POLL_MS           = sNum(st.PollSeconds, 15) * 1000;
+  CONFIG.LOG_LIMIT         = sNum(st.LogLimit, 3000);
+  CONFIG.ENFORCE_SEQUENCE  = sBool(st.EnforceSequence, false);
+  CONFIG.LABEL_WIDTH_MM    = sNum(st.LabelWidthMm, 50);
+  CONFIG.LABEL_HEIGHT_MM   = sNum(st.LabelHeightMm, 25);
+  CONFIG.BREAK_GAP_MINUTES = sNum(st.BreakGapMinutes, 30);
+  CONFIG.PIN_REQUIRED      = !!st.PinRequired;
+  CONFIG.SETTINGS          = st;
+  applyTitle();
+}
+
+function applyTitle() {
+  var el = document.querySelector('.brand h1');
+  if (el && CONFIG.APP_TITLE && el.dataset.fixed !== '1') {
+    if (el.textContent !== 'Scan Station') el.textContent = CONFIG.APP_TITLE;
   }
 }
 
