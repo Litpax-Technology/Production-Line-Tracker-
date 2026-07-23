@@ -216,6 +216,13 @@ td .sub{font-size:11.5px;color:var(--text-muted);font-family:var(--mono);margin-
 /* ---------- Print card readability ---------- */
 .print-card .sub{font-size:10.5px;color:var(--text-muted);font-family:var(--mono);margin-top:6px;word-break:break-all;}
 .print-card svg{display:block;margin:0 auto;min-height:60px;}
+/* ---------- Card selection ---------- */
+.print-card{position:relative;transition:opacity .12s;}
+.card-check{position:absolute;top:10px;left:10px;width:17px;height:17px;accent-color:var(--accent);cursor:pointer;}
+.print-card.unselected{opacity:.35;}
+
 @media print{
   #bcWarn{display:none;}
+  .card-check{display:none !important;}
+  .print-card.unselected{display:none !important;}
 }
