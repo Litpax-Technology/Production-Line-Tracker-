@@ -3,26 +3,23 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Pack Line Tracker</title>
+<title>Scan Station - Pack Line Tracker</title>
 <link rel="stylesheet" href="style.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/JsBarcode/3.11.5/JsBarcode.all.min.js"></script>
 </head>
 <body>
 
-<div class="app" id="app">
+<div class="app app-scan" id="app">
 
   <div class="header">
     <div class="brand">
       <div class="brand-mark">L</div>
       <div>
-        <h1>Pack Line Tracker</h1>
-        <p>Cell to Module to Pack Traceability</p>
+        <h1>Scan Station</h1>
+        <p>Pack line traceability</p>
       </div>
     </div>
     <div class="context-bar" id="contextBar"></div>
   </div>
-
-  <div class="tabs" id="tabs"></div>
 
   <div id="content"></div>
 
@@ -34,6 +31,7 @@
 </div>
 
 <script src="config.js"></script>
+<script src="common.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
