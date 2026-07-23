@@ -7,6 +7,9 @@ var state = {
   stations: [],
   packs: {},          // packId -> { id, currentStage, status, history[] }
   viewPacks: [],      // filtered list currently rendered on dashboard
+  logs: [],           // raw rows from the Sheet, used by the Employees tab
+  empRange: 'today',
+  expandedEmp: null,
   loading: true,
   currentStation: '',
   operator: null,
@@ -158,6 +161,7 @@ function loadAll() {
   return call('init', { limit: CONFIG.LOG_LIMIT || 3000 }).then(function (res) {
     state.staff = res.staff || [];
     state.stations = res.stations || [];
+    state.logs = res.logs || [];
     state.packs = buildPacks(res.logs || []);
     state.loading = false;
     render();
@@ -173,8 +177,9 @@ function refreshPacks() {
   call('init', { limit: CONFIG.LOG_LIMIT || 3000 }).then(function (res) {
     state.staff = res.staff || [];
     state.stations = res.stations || [];
+    state.logs = res.logs || [];
     state.packs = buildPacks(res.logs || []);
-    if (state.tab === 'dashboard') render();
+    if (state.tab === 'dashboard' || state.tab === 'employees') render();
   }, function () { /* silent - dot already shows the state */ });
 }
 
@@ -431,7 +436,7 @@ function togglePack(i) {
 }
 
 function renderTabs() {
-  var tabs = [['scan', 'Scan'], ['dashboard', 'Dashboard'], ['setup', 'Setup'], ['cards', 'Print Cards']];
+  var tabs = [['scan', 'Scan'], ['dashboard', 'Dashboard'], ['employees', 'Employees'], ['setup', 'Setup'], ['cards', 'Print Cards']];
   document.getElementById('tabs').innerHTML = tabs.map(function (t) {
     return '<button class="tab ' + (state.tab === t[0] ? 'active' : '') + '" onclick="setTab(\'' + t[0] + '\')">' + t[1] + '</button>';
   }).join('');
@@ -630,10 +635,181 @@ function drawBarcodes() {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Employee performance                                                */
+/* ------------------------------------------------------------------ */
+
+var BREAK_GAP_MS = 30 * 60 * 1000;   // gaps longer than this are treated as breaks
+
+function rangeStartMs(range) {
+  var d = new Date();
+  d.setHours(0, 0, 0, 0);
+  if (range === 'today') return d.getTime();
+  if (range === 'week') return d.getTime() - 6 * 86400000;
+  if (range === 'month') return d.getTime() - 29 * 86400000;
+  return 0;
+}
+
+function dayKey(ts) {
+  var d = new Date(ts);
+  return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+}
+
+/**
+ * Builds per-employee stats from the raw log rows.
+ * Row shape: [ts, floor, packId, station, operatorId, operatorName, result]
+ */
+function computeEmployeeStats() {
+  var from = rangeStartMs(state.empRange);
+  var byEmp = {};
+
+  state.logs.forEach(function (r) {
+    if (r[0] < from) return;
+    var id = r[4];
+    if (!id) return;
+    if (!byEmp[id]) {
+      byEmp[id] = {
+        id: id, name: r[5] || id, total: 0, packs: {}, days: {},
+        stages: {}, times: [], pass: 0, fail: 0, rework: 0
+      };
+    }
+    var e = byEmp[id];
+    e.total++;
+    e.packs[r[2]] = true;
+    e.days[dayKey(r[0])] = true;
+    e.times.push(r[0]);
+    if (r[6] === 'pass') e.pass++;
+    else if (r[6] === 'fail') e.fail++;
+    else if (r[6] === 'rework') e.rework++;
+
+    if (!e.stages[r[3]]) e.stages[r[3]] = { name: r[3], count: 0, times: [] };
+    e.stages[r[3]].count++;
+    e.stages[r[3]].times.push(r[0]);
+  });
+
+  return Object.keys(byEmp).map(function (id) {
+    var e = byEmp[id];
+    e.uniquePacks = Object.keys(e.packs).length;
+    e.daysWorked = Object.keys(e.days).length;
+    e.avgPerDay = e.daysWorked ? (e.total / e.daysWorked) : 0;
+    e.pace = paceMinutes(e.times);
+    e.stageList = Object.keys(e.stages).map(function (k) {
+      var st = e.stages[k];
+      st.pace = paceMinutes(st.times);
+      return st;
+    }).sort(function (a, b) { return b.count - a.count; });
+    return e;
+  }).sort(function (a, b) { return b.total - a.total; });
+}
+
+/** Average minutes between consecutive scans, ignoring break-length gaps. */
+function paceMinutes(times) {
+  if (!times || times.length < 3) return null;
+  var t = times.slice().sort(function (a, b) { return a - b; });
+  var sum = 0, n = 0;
+  for (var i = 1; i < t.length; i++) {
+    var gap = t[i] - t[i - 1];
+    if (gap > 0 && gap <= BREAK_GAP_MS) { sum += gap; n++; }
+  }
+  if (n < 2) return null;
+  return (sum / n) / 60000;
+}
+
+function setEmpRange(r) { state.empRange = r; state.expandedEmp = null; renderContentOnly(); }
+function toggleEmp(id) {
+  state.expandedEmp = state.expandedEmp === id ? null : id;
+  renderContentOnly();
+}
+
+function fmtPace(p) { return p === null ? '&ndash;' : p.toFixed(1) + ' min'; }
+
+function renderEmployeesTab() {
+  var stats = computeEmployeeStats();
+
+  var ranges = [['today', 'Today'], ['week', 'Last 7 days'], ['month', 'Last 30 days'], ['all', 'All time']];
+  var rangeBtns = '<div class="range-bar">' + ranges.map(function (r) {
+    return '<button class="range-btn ' + (state.empRange === r[0] ? 'active' : '') +
+           '" onclick="setEmpRange(\'' + r[0] + '\')">' + r[1] + '</button>';
+  }).join('') + '</div>';
+
+  if (!stats.length) {
+    return rangeBtns + '<div class="panel"><div class="empty"><div class="big">No scans in this period</div>' +
+           'Pick a wider date range, or start scanning on the Scan tab.</div></div>';
+  }
+
+  var totalScans = stats.reduce(function (a, e) { return a + e.total; }, 0);
+  var summary = '<div class="stat-grid">' +
+    '<div class="stat-card"><div class="num">' + stats.length + '</div><div class="lbl">Employees active</div></div>' +
+    '<div class="stat-card"><div class="num">' + totalScans + '</div><div class="lbl">Total scans</div></div>' +
+    '<div class="stat-card"><div class="num">' + esc(stats[0].name) + '</div><div class="lbl">Highest output</div></div>' +
+    '</div>';
+
+  var rows = '';
+  stats.forEach(function (e) {
+    rows += '<tr style="cursor:pointer" onclick="toggleEmp(\'' + esc(e.id).replace(/'/g, '') + '\')">' +
+      '<td><div class="name">' + esc(e.name) + '</div><div class="sub">' + esc(e.id) + '</div></td>' +
+      '<td class="mono">' + e.total + '</td>' +
+      '<td class="mono">' + e.uniquePacks + '</td>' +
+      '<td class="mono">' + e.daysWorked + '</td>' +
+      '<td class="mono">' + e.avgPerDay.toFixed(1) + '</td>' +
+      '<td class="mono">' + fmtPace(e.pace) + '</td>' +
+      '</tr>';
+
+    if (state.expandedEmp === e.id) {
+      var inner = e.stageList.map(function (st) {
+        return '<div class="history-item">' +
+          '<span style="min-width:160px;">' + esc(st.name) + '</span>' +
+          '<span class="mono">' + st.count + ' scans</span>' +
+          '<span class="mono">' + fmtPace(st.pace) + ' per battery</span>' +
+          '</div>';
+      }).join('');
+      var qc = (e.pass + e.fail + e.rework)
+        ? '<div class="history-item"><span style="min-width:160px;">QC outcomes</span>' +
+          '<span class="badge pass">' + e.pass + ' pass</span>' +
+          '<span class="badge fail">' + e.fail + ' fail</span>' +
+          '<span class="badge pending">' + e.rework + ' rework</span></div>'
+        : '';
+      rows += '<tr><td colspan="6"><div class="history-detail">' + inner + qc + '</div></td></tr>';
+    }
+  });
+
+  return rangeBtns + summary +
+    '<div class="panel"><div class="panel-title">Output by employee</div>' +
+    '<div class="table-wrap"><table><thead><tr>' +
+    '<th>Employee</th><th>Scans</th><th>Batteries</th><th>Days</th><th>Avg / day</th><th>Pace</th>' +
+    '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
+    '<p style="font-size:12px;color:var(--text-muted);margin:14px 0 0;">Click a row for the stage-wise breakdown. ' +
+    'Pace is the average time between an employee\'s consecutive scans; gaps over 30 minutes count as breaks and are excluded. ' +
+    'Shown after at least 3 readings.</p>' +
+    '<div style="margin-top:14px;"><button class="btn secondary" onclick="exportEmployeeCSV()">Export employee CSV</button></div>' +
+    '</div>';
+}
+
+function exportEmployeeCSV() {
+  var stats = computeEmployeeStats();
+  var rows = [['Employee ID', 'Name', 'Stage', 'Scans', 'Pace (min)', 'Period']];
+  stats.forEach(function (e) {
+    rows.push([e.id, e.name, 'ALL STAGES', e.total, e.pace === null ? '' : e.pace.toFixed(1), state.empRange]);
+    e.stageList.forEach(function (st) {
+      rows.push([e.id, e.name, st.name, st.count, st.pace === null ? '' : st.pace.toFixed(1), state.empRange]);
+    });
+  });
+  var csv = rows.map(function (r) {
+    return r.map(function (c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(',');
+  }).join('\n');
+  var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'employee-output-' + state.empRange + '.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(a.href);
+}
+
 function renderContentOnly() {
   var content = document.getElementById('content');
   if (state.tab === 'scan') content.innerHTML = renderScanTab();
   else if (state.tab === 'dashboard') content.innerHTML = renderDashboardTab();
+  else if (state.tab === 'employees') content.innerHTML = renderEmployeesTab();
   else if (state.tab === 'setup') content.innerHTML = renderSetupTab();
   else if (state.tab === 'cards') { content.innerHTML = renderCardsTab(); setTimeout(drawBarcodes, 30); }
 }
