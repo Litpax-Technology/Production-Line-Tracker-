@@ -12,23 +12,28 @@ state = {
   loading: true, connected: true, pending: 0, statusMsg: ''
 };
 
-var BREAK_GAP_MS = 30 * 60 * 1000;   // gaps longer than this count as breaks
+function breakGapMs() { return (CONFIG.BREAK_GAP_MINUTES || 30) * 60000; }
 
 /* ---------------- PIN gate ---------------- */
 
 function tryUnlock() {
   var el = document.getElementById('pinInput');
   var val = (el && el.value || '').trim();
-  if (val !== String(CONFIG.ADMIN_PIN)) {
-    document.getElementById('pinError').textContent = 'Wrong PIN. Try again.';
-    el.value = '';
-    el.focus();
-    return;
-  }
-  state.unlocked = true;
-  try { sessionStorage.setItem('plt_admin', '1'); } catch (e) {}
-  render();
-  loadAll();
+  var err = document.getElementById('pinError');
+  err.textContent = 'Checking...';
+  call('checkPin', { pin: val }).then(function (res) {
+    if (!res.valid) {
+      err.textContent = 'Wrong PIN. Try again.';
+      el.value = ''; el.focus();
+      return;
+    }
+    state.unlocked = true;
+    try { sessionStorage.setItem('plt_admin', '1'); } catch (e) {}
+    render();
+    loadAll();
+  }, function (e) {
+    err.textContent = 'Could not reach the Sheet: ' + e.message;
+  });
 }
 
 function lockAdmin() {
@@ -55,6 +60,7 @@ function renderPinGate() {
 
 function loadAll() {
   return call('init', { limit: CONFIG.LOG_LIMIT || 3000 }).then(function (res) {
+    applySettings(res.settings);
     state.staff = res.staff || [];
     state.stations = res.stations || [];
     state.logs = res.logs || [];
@@ -71,6 +77,7 @@ function loadAll() {
 function refreshAll() {
   if (state.pending > 0 || !state.unlocked) return;
   call('init', { limit: CONFIG.LOG_LIMIT || 3000 }).then(function (res) {
+    applySettings(res.settings);
     state.staff = res.staff || [];
     state.stations = res.stations || [];
     state.logs = res.logs || [];
@@ -176,7 +183,7 @@ function paceMinutes(times) {
   var sum = 0, n = 0;
   for (var i = 1; i < t.length; i++) {
     var gap = t[i] - t[i - 1];
-    if (gap > 0 && gap <= BREAK_GAP_MS) { sum += gap; n++; }
+    if (gap > 0 && gap <= breakGapMs()) { sum += gap; n++; }
   }
   if (n < 2) return null;
   return (sum / n) / 60000;
@@ -275,7 +282,7 @@ function renderEmployees() {
     '<th>Employee</th><th>Scans</th><th>Batteries</th><th>Days</th><th>Avg / day</th><th>Pace</th>' +
     '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
     '<p style="font-size:12px;color:var(--text-muted);margin:14px 0 0;">Click a row for the stage-wise breakdown. ' +
-    'Pace is the average time between an employee\'s consecutive scans; gaps over 30 minutes count as breaks and are excluded. ' +
+    'Pace is the average time between an employee\'s consecutive scans; gaps over ' + (CONFIG.BREAK_GAP_MINUTES || 30) + ' minutes count as breaks and are excluded. ' +
     'Shown after at least 3 readings.</p>' +
     '<div style="margin-top:14px;"><button class="btn secondary" onclick="exportEmployeeCSV()">Export employee CSV</button></div>' +
     '</div>';
@@ -356,7 +363,20 @@ function renderSetup() {
       '<button class="icon-btn danger" onclick="removeStationAt(' + i + ')">X</button></div></div>';
   }).join('');
 
-  return '<div class="panel"><div class="panel-title">Employees</div>' +
+  var st = CONFIG.SETTINGS || {};
+  var settingRows = Object.keys(st).filter(function (k) { return k !== 'PinRequired'; })
+    .map(function (k) {
+      return '<tr><td class="mono">' + esc(k) + '</td><td class="mono">' + esc(st[k]) + '</td></tr>';
+    }).join('');
+
+  var settingsPanel = '<div class="panel"><div class="panel-title">Settings (edit in the Sheet)</div>' +
+    '<p style="color:var(--text-muted);font-size:13.5px;margin-top:-6px;">These come from the Settings tab of the ' +
+    'Google Sheet. Change a value there, then reload this page. Nothing here needs a code change.</p>' +
+    '<div class="table-wrap"><table><thead><tr><th>Key</th><th>Current value</th></tr></thead><tbody>' +
+    settingRows + '</tbody></table></div></div>';
+
+  return settingsPanel +
+    '<div class="panel"><div class="panel-title">Employees</div>' +
       (staffRows || '<div class="empty">No employees added yet.</div>') +
       '<div class="row" style="margin-top:12px;">' +
         '<div class="field"><label>Name (e.g. the person\'s full name)</label><input id="staffName" placeholder="Full name"></div>' +
@@ -674,11 +694,21 @@ function render() {
 }
 
 /* ---------------- Boot ---------------- */
-if (!CONFIG.ADMIN_PIN) state.unlocked = true;
+
 try {
   if (sessionStorage.getItem('plt_admin') === '1') state.unlocked = true;
 } catch (e) {}
 
 render();
-if (state.unlocked) loadAll();
-if (CONFIG.POLL_MS) setInterval(refreshAll, Math.max(CONFIG.POLL_MS, 20000));
+
+// Settings decide whether a PIN is needed at all, so fetch them first.
+call('settings', {}).then(function (res) {
+  applySettings(res.settings);
+  if (!CONFIG.PIN_REQUIRED) state.unlocked = true;
+  render();
+  if (state.unlocked) loadAll();
+  if (CONFIG.POLL_MS) setInterval(refreshAll, Math.max(CONFIG.POLL_MS, 20000));
+}, function (err) {
+  state.statusMsg = err.message;
+  render();
+});
