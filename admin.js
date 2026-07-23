@@ -694,7 +694,7 @@ function render() {
 }
 
 /* ---------------- Boot ---------------- */
-
+if (!CONFIG.ADMIN_PIN) state.unlocked = true;
 try {
   if (sessionStorage.getItem('plt_admin') === '1') state.unlocked = true;
 } catch (e) {}
