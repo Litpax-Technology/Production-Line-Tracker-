@@ -11,14 +11,20 @@ state = {
 /* ---------------- Load ---------------- */
 
 function loadAll() {
-  // Log rows are only needed when out-of-sequence checking is on.
-  var limit = CONFIG.ENFORCE_SEQUENCE ? (CONFIG.LOG_LIMIT || 3000) : 0;
-  return call('init', { limit: limit }).then(function (res) {
+  // First pass fetches settings; a second pass pulls logs only if the
+  // Settings sheet has out-of-sequence checking switched on.
+  return call('init', { limit: 0 }).then(function (res) {
+    applySettings(res.settings);
     state.staff = res.staff || [];
     state.stations = res.stations || [];
-    state.packs = buildPacks(res.logs || []);
     state.loading = false;
     render();
+    startPolling();
+    if (CONFIG.ENFORCE_SEQUENCE) {
+      return call('init', { limit: CONFIG.LOG_LIMIT }).then(function (r2) {
+        state.packs = buildPacks(r2.logs || []);
+      }, function () {});
+    }
   }, function (err) {
     state.loading = false;
     state.statusMsg = err.message;
@@ -26,10 +32,16 @@ function loadAll() {
   });
 }
 
+function startPolling() {
+  if (!CONFIG.POLL_MS) return;
+  setInterval(refreshLists, Math.max(CONFIG.POLL_MS, 30000));
+}
+
 /** Refreshes staff/stations only, so a newly added employee can sign in. */
 function refreshLists() {
   if (state.pending > 0) return;
   call('init', { limit: 0 }).then(function (res) {
+    applySettings(res.settings);
     state.staff = res.staff || [];
     state.stations = res.stations || [];
   }, function () { /* the dot already shows the state */ });
@@ -267,7 +279,6 @@ function render() {
 
 render();
 loadAll();
-if (CONFIG.POLL_MS) setInterval(refreshLists, Math.max(CONFIG.POLL_MS, 30000));
 
 // A scanner types wherever the focus is, so keep the scan box focused.
 document.addEventListener('click', function () {
