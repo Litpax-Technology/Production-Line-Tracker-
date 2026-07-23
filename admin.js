@@ -7,6 +7,7 @@ state = {
   staff: [], stations: [], logs: [], packs: {},
   viewPacks: [], search: '', expandedPack: null,
   empRange: 'today', expandedEmp: null,
+  sel: { station: {}, staff: {} },   // false = unchecked; missing = checked
   loading: true, connected: true, pending: 0, statusMsg: ''
 };
 
@@ -372,10 +373,56 @@ function renderSetup() {
 
 /* ---------------- Print cards ---------------- */
 
+function isSel(type, i) { return state.sel[type][i] !== false; }
+
+function toggleCard(type, i, el) {
+  state.sel[type][i] = !!el.checked;
+  var card = document.getElementById('card-' + type + '-' + i);
+  if (card) card.className = 'print-card' + (el.checked ? '' : ' unselected');
+  updatePrintCount();
+}
+
+function selectAllCards(v) {
+  state.stations.forEach(function (s, i) { state.sel.station[i] = v; });
+  state.staff.forEach(function (s, i) { state.sel.staff[i] = v; });
+  ['station', 'staff'].forEach(function (type) {
+    var list = type === 'station' ? state.stations : state.staff;
+    list.forEach(function (s, i) {
+      var box = document.getElementById('chk-' + type + '-' + i);
+      var card = document.getElementById('card-' + type + '-' + i);
+      if (box) box.checked = v;
+      if (card) card.className = 'print-card' + (v ? '' : ' unselected');
+    });
+  });
+  updatePrintCount();
+}
+
+function countSelected() {
+  var n = 0;
+  state.stations.forEach(function (s, i) { if (isSel('station', i)) n++; });
+  state.staff.forEach(function (s, i) { if (isSel('staff', i)) n++; });
+  return n;
+}
+
+function updatePrintCount() {
+  var el = document.getElementById('printCount');
+  if (el) el.textContent = countSelected();
+}
+
+function printSelected() {
+  if (!countSelected()) { alert('Nothing selected. Tick at least one card to print.'); return; }
+  window.print();
+}
+
 function renderCards() {
   return '<div class="panel"><div class="panel-title">Station cards and employee badges</div>' +
-    '<p style="color:var(--text-muted);font-size:13.5px;">Print, laminate, place one station card at each station and hand each employee their badge. Scanning a card sets the context on the floor PC.</p>' +
-    '<button class="btn" onclick="window.print()">Print this page</button></div>' +
+    '<p style="color:var(--text-muted);font-size:13.5px;margin-top:-6px;">Untick anything you do not need, then print. ' +
+    'Added one new employee? Clear all, tick just that badge, and print a single card.</p>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">' +
+      '<button class="btn" onclick="printSelected()">Print selected (<span id="printCount">0</span>)</button>' +
+      '<button class="btn secondary" onclick="selectAllCards(true)">Select all</button>' +
+      '<button class="btn secondary" onclick="selectAllCards(false)">Clear all</button>' +
+    '</div></div>' +
     '<div id="printArea">' +
       '<div class="panel"><div class="panel-title">Station cards</div><div class="card-grid" id="stationCards"></div></div>' +
       '<div class="panel"><div class="panel-title">Employee badges</div><div class="card-grid" id="staffCards"></div></div>' +
@@ -401,17 +448,27 @@ function drawBarcodes() {
   // Draw the cards first, so labels are visible even if barcodes fail.
   stEl.innerHTML = state.stations.length
     ? state.stations.map(function (s, i) {
-        return '<div class="print-card"><div class="label">' + esc(s) + '</div>' +
+        var on = isSel('station', i);
+        return '<div class="print-card' + (on ? '' : ' unselected') + '" id="card-station-' + i + '">' +
+               '<input type="checkbox" class="card-check" id="chk-station-' + i + '"' + (on ? ' checked' : '') +
+               ' onchange="toggleCard(\'station\',' + i + ',this)">' +
+               '<div class="label">' + esc(s) + '</div>' +
                '<svg id="stc' + i + '"></svg><div class="sub">STATION:' + esc(s) + '</div></div>';
       }).join('')
     : '<div class="empty">No stations added yet. Add them on the Setup tab.</div>';
 
   stfEl.innerHTML = state.staff.length
     ? state.staff.map(function (s, i) {
-        return '<div class="print-card"><div class="label">' + esc(s.name) + '</div>' +
+        var on = isSel('staff', i);
+        return '<div class="print-card' + (on ? '' : ' unselected') + '" id="card-staff-' + i + '">' +
+               '<input type="checkbox" class="card-check" id="chk-staff-' + i + '"' + (on ? ' checked' : '') +
+               ' onchange="toggleCard(\'staff\',' + i + ',this)">' +
+               '<div class="label">' + esc(s.name) + '</div>' +
                '<svg id="stfc' + i + '"></svg><div class="sub">' + esc(s.id) + '</div></div>';
       }).join('')
     : '<div class="empty">No employees added yet. Add them on the Setup tab.</div>';
+
+  updatePrintCount();
 
   ensureJsBarcode(function (ok) {
     if (!ok) {
@@ -486,7 +543,7 @@ function render() {
 }
 
 /* ---------------- Boot ---------------- */
-if (!CONFIG.ADMIN_PIN) state.unlocked = true;
+
 try {
   if (sessionStorage.getItem('plt_admin') === '1') state.unlocked = true;
 } catch (e) {}
