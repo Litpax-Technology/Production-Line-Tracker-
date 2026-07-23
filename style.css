@@ -186,8 +186,8 @@ tr:last-child td{border-bottom:none;}
 
 @media print{
   body *{visibility:hidden;}
-  #printArea, #printArea *{visibility:visible;}
-  #printArea{position:absolute;top:0;left:0;width:100%;}
+  #printArea, #printArea *, #labelArea, #labelArea *{visibility:visible;}
+  #printArea, #labelArea{position:absolute;top:0;left:0;width:100%;}
   #printArea .panel{border:none;box-shadow:none;padding:0;}
   .card-grid{grid-template-columns:repeat(2,1fr);}
   .print-card{border:1px solid #d0d5dd;page-break-inside:avoid;}
@@ -225,4 +225,22 @@ td .sub{font-size:11.5px;color:var(--text-muted);font-family:var(--mono);margin-
   #bcWarn{display:none;}
   .card-check{display:none !important;}
   .print-card.unselected{display:none !important;}
+}
+
+/* ---------- Battery labels ---------- */
+.label-sheet{display:flex;flex-wrap:wrap;gap:4mm;margin-top:4px;}
+.battery-label{display:flex;align-items:center;gap:2mm;border:1px solid var(--border-strong);
+  border-radius:1mm;padding:2mm;background:#fff;box-sizing:border-box;page-break-inside:avoid;break-inside:avoid;}
+.battery-label .ql{flex:0 0 auto;height:100%;aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;}
+.battery-label .ql svg{width:100%;height:100%;display:block;}
+.battery-label .qt{flex:1;min-width:0;overflow:hidden;}
+.battery-label .qt-brand{font-size:2.2mm;letter-spacing:.4mm;color:#667085;font-weight:600;}
+.battery-label .qt-serial{font-family:var(--mono);font-size:3.4mm;font-weight:600;color:#101828;
+  margin-top:.8mm;word-break:break-all;line-height:1.15;}
+textarea.search-input{resize:vertical;font-family:var(--mono);font-size:13px;}
+
+@media print{
+  .label-sheet{gap:2mm;}
+  .battery-label{border:1px dotted #999;}
+  @page{margin:6mm;}
 }
