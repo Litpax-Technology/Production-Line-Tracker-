@@ -8,6 +8,7 @@ state = {
   viewPacks: [], search: '', expandedPack: null,
   empRange: 'today', expandedEmp: null,
   sel: { station: {}, staff: {} },   // false = unchecked; missing = checked
+  labels: [],                        // serials currently laid out for printing
   loading: true, connected: true, pending: 0, statusMsg: ''
 };
 
@@ -495,12 +496,141 @@ function drawBarcodes() {
   });
 }
 
+
+/* ------------------------------------------------------------------ */
+/* Battery labels                                                      */
+/* ------------------------------------------------------------------ */
+
+function ensureQR(cb) {
+  if (typeof qrcode !== 'undefined') { cb(true); return; }
+  var a = document.createElement('script');
+  a.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js';
+  a.onload = function () { cb(typeof qrcode !== 'undefined'); };
+  a.onerror = function () {
+    var b = document.createElement('script');
+    b.src = 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js';
+    b.onload = function () { cb(typeof qrcode !== 'undefined'); };
+    b.onerror = function () { cb(false); };
+    document.head.appendChild(b);
+  };
+  document.head.appendChild(a);
+}
+
+function generateSerials() {
+  var qty = parseInt(document.getElementById('labelQty').value, 10);
+  if (!qty || qty < 1) { alert('Enter how many batteries you need labels for.'); return; }
+  if (qty > 200) { alert('Maximum 200 at a time.'); return; }
+
+  var btn = document.getElementById('genBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Generating...'; }
+
+  call('newSerials', { qty: qty }).then(function (res) {
+    state.labels = res.serials || [];
+    renderContentOnly();
+  }, function (err) {
+    alert('Could not generate serials: ' + err.message);
+    if (btn) { btn.disabled = false; btn.textContent = 'Generate serials'; }
+  });
+}
+
+function loadReprint() {
+  var raw = document.getElementById('reprintBox').value || '';
+  var list = raw.split(/[\n,\s]+/).map(function (v) { return v.trim(); }).filter(function (v) { return v; });
+  if (!list.length) { alert('Paste at least one serial number.'); return; }
+  if (list.length > 200) { alert('Maximum 200 at a time.'); return; }
+  state.labels = list;
+  renderContentOnly();
+}
+
+function clearLabels() { state.labels = []; renderContentOnly(); }
+
+function renderLabels() {
+  var w = CONFIG.LABEL_WIDTH_MM || 50;
+  var h = CONFIG.LABEL_HEIGHT_MM || 25;
+
+  var head = '<div class="panel"><div class="panel-title">New battery labels</div>' +
+    '<p style="color:var(--text-muted);font-size:13.5px;margin-top:-6px;">Each serial is recorded in the ' +
+    'BatteryMaster sheet the moment it is generated, so a number is never issued twice.</p>' +
+    '<div class="row" style="max-width:320px;">' +
+      '<div class="field"><label>How many batteries</label>' +
+      '<input id="labelQty" type="number" min="1" max="200" value="10" ' +
+      'onkeydown="if(event.key===\'Enter\') generateSerials();"></div>' +
+    '</div>' +
+    '<div style="margin-top:10px;"><button class="btn" id="genBtn" onclick="generateSerials()">Generate serials</button></div>' +
+    '</div>' +
+    '<div class="panel"><div class="panel-title">Reprint existing labels</div>' +
+    '<p style="color:var(--text-muted);font-size:13.5px;margin-top:-6px;">Label damaged or lost? Paste the serials ' +
+    '(one per line). Nothing new is created.</p>' +
+    '<textarea id="reprintBox" class="search-input" rows="3" placeholder="LP-2607-0001"></textarea>' +
+    '<div style="margin-top:10px;"><button class="btn secondary" onclick="loadReprint()">Load these serials</button></div>' +
+    '</div>';
+
+  if (!state.labels.length) {
+    return head + '<div class="panel"><div class="empty"><div class="big">No labels laid out yet</div>' +
+           'Generate new serials, or paste existing ones to reprint.</div></div>';
+  }
+
+  return head +
+    '<div class="panel"><div class="panel-title">' + state.labels.length + ' label(s) ready &middot; ' + w + ' x ' + h + ' mm</div>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+      '<button class="btn" onclick="window.print()">Print labels</button>' +
+      '<button class="btn secondary" onclick="copySerials()">Copy serials</button>' +
+      '<button class="btn secondary" onclick="clearLabels()">Clear</button>' +
+    '</div>' +
+    '<p style="font-size:12px;color:var(--text-muted);margin:12px 0 0;">Set the printer to the same label size and ' +
+    'turn off any scaling, or the QR will not scan. Change the size in config.js.</p>' +
+    '</div>' +
+    '<div id="labelArea" class="print-target"><div class="label-sheet" id="labelSheet"></div></div>';
+}
+
+function copySerials() {
+  var txt = state.labels.join('\n');
+  if (navigator.clipboard) navigator.clipboard.writeText(txt);
+  else window.prompt('Copy these serials:', txt);
+}
+
+function drawLabels() {
+  var host = document.getElementById('labelSheet');
+  if (!host || !state.labels.length) return;
+  var w = CONFIG.LABEL_WIDTH_MM || 50;
+  var h = CONFIG.LABEL_HEIGHT_MM || 25;
+
+  host.innerHTML = state.labels.map(function (sn, i) {
+    return '<div class="battery-label" style="width:' + w + 'mm;height:' + h + 'mm;">' +
+             '<div class="ql" id="ql' + i + '"></div>' +
+             '<div class="qt"><div class="qt-brand">LITPAX</div>' +
+             '<div class="qt-serial">' + esc(sn) + '</div></div>' +
+           '</div>';
+  }).join('');
+
+  ensureQR(function (ok) {
+    if (!ok) {
+      host.insertAdjacentHTML('beforebegin',
+        '<div class="panel" style="border-color:var(--danger-border);background:var(--danger-dim);">' +
+        '<div class="panel-title" style="color:var(--danger);">QR library did not load</div>' +
+        'This PC could not reach the QR generator. Check the connection and reload. Serials are still saved.</div>');
+      return;
+    }
+    state.labels.forEach(function (sn, i) {
+      var cell = document.getElementById('ql' + i);
+      if (!cell) return;
+      try {
+        var q = qrcode(0, 'M');       // auto version, medium error correction
+        q.addData(sn);
+        q.make();
+        cell.innerHTML = q.createSvgTag({ scalable: true, margin: 0 });
+      } catch (e) { cell.textContent = sn; }
+    });
+  });
+}
+
 /* ---------------- Shell ---------------- */
 
 function renderTabs() {
   var el = document.getElementById('tabs');
   if (!state.unlocked) { el.innerHTML = ''; return; }
-  var tabs = [['dashboard', 'Dashboard'], ['employees', 'Employees'], ['setup', 'Setup'], ['cards', 'Print Cards']];
+  var tabs = [['dashboard', 'Dashboard'], ['employees', 'Employees'], ['labels', 'Battery Labels'],
+              ['setup', 'Setup'], ['cards', 'Print Cards']];
   el.innerHTML = tabs.map(function (t) {
     return '<button class="tab ' + (state.tab === t[0] ? 'active' : '') + '" onclick="setTab(\'' + t[0] + '\')">' + t[1] + '</button>';
   }).join('');
@@ -517,6 +647,7 @@ function renderContentOnly() {
   if (state.tab === 'dashboard') c.innerHTML = renderDashboard();
   else if (state.tab === 'employees') c.innerHTML = renderEmployees();
   else if (state.tab === 'setup') c.innerHTML = renderSetup();
+  else if (state.tab === 'labels') { c.innerHTML = renderLabels(); setTimeout(drawLabels, 30); }
   else if (state.tab === 'cards') { c.innerHTML = renderCards(); setTimeout(drawBarcodes, 30); }
 }
 
@@ -543,7 +674,7 @@ function render() {
 }
 
 /* ---------------- Boot ---------------- */
-if (!CONFIG.ADMIN_PIN) state.unlocked = true;
+
 try {
   if (sessionStorage.getItem('plt_admin') === '1') state.unlocked = true;
 } catch (e) {}
