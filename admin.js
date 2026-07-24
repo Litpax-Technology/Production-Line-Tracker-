@@ -8,7 +8,9 @@ state = {
   viewPacks: [], search: '', expandedPack: null,
   empRange: 'today', expandedEmp: null,
   sel: { station: {}, staff: {} },   // false = unchecked; missing = checked
-  labels: [],                        // serials currently laid out for printing
+  labels: [], labelModel: '',        // serials currently laid out for printing
+  models: [],
+  empFrom: '', empTo: '',            // custom date range on the Employees tab
   loading: true, connected: true, pending: 0, statusMsg: ''
 };
 
@@ -61,6 +63,7 @@ function renderPinGate() {
 function loadAll() {
   return call('init', { limit: CONFIG.LOG_LIMIT || 3000 }).then(function (res) {
     applySettings(res.settings);
+    state.models = res.models || [];
     state.staff = res.staff || [];
     state.stations = res.stations || [];
     state.logs = res.logs || [];
@@ -78,6 +81,7 @@ function refreshAll() {
   if (state.pending > 0 || !state.unlocked) return;
   call('init', { limit: CONFIG.LOG_LIMIT || 3000 }).then(function (res) {
     applySettings(res.settings);
+    state.models = res.models || [];
     state.staff = res.staff || [];
     state.stations = res.stations || [];
     state.logs = res.logs || [];
@@ -164,12 +168,33 @@ function exportTraceCSV() {
 /* ---------------- Employees ---------------- */
 
 function rangeStartMs(range) {
+  if (range === 'custom') {
+    if (!state.empFrom) return 0;
+    var f = new Date(state.empFrom); f.setHours(0, 0, 0, 0);
+    return f.getTime();
+  }
   var d = new Date(); d.setHours(0, 0, 0, 0);
   if (range === 'today') return d.getTime();
   if (range === 'week') return d.getTime() - 6 * 86400000;
   if (range === 'month') return d.getTime() - 29 * 86400000;
   return 0;
 }
+
+function rangeEndMs(range) {
+  if (range === 'custom' && state.empTo) {
+    var t = new Date(state.empTo); t.setHours(23, 59, 59, 999);
+    return t.getTime();
+  }
+  return Infinity;
+}
+
+function rangeLabel() {
+  if (state.empRange !== 'custom') return state.empRange;
+  return (state.empFrom || 'start') + ' to ' + (state.empTo || 'today');
+}
+
+function setCustomFrom(v) { state.empFrom = v; state.empRange = 'custom'; renderContentOnly(); }
+function setCustomTo(v) { state.empTo = v; state.empRange = 'custom'; renderContentOnly(); }
 
 function dayKey(ts) {
   var d = new Date(ts);
@@ -191,10 +216,11 @@ function paceMinutes(times) {
 
 function computeEmployeeStats() {
   var from = rangeStartMs(state.empRange);
+  var to = rangeEndMs(state.empRange);
   var byEmp = {};
 
   state.logs.forEach(function (r) {
-    if (r[0] < from) return;
+    if (r[0] < from || r[0] > to) return;
     var id = r[4];
     if (!id) return;
     if (!byEmp[id]) byEmp[id] = { id: id, name: r[5] || id, total: 0, packs: {}, days: {}, stages: {}, times: [], pass: 0, fail: 0, rework: 0 };
@@ -232,11 +258,22 @@ function fmtPace(p) { return p === null ? '&ndash;' : p.toFixed(1) + ' min'; }
 
 function renderEmployees() {
   var stats = computeEmployeeStats();
-  var ranges = [['today', 'Today'], ['week', 'Last 7 days'], ['month', 'Last 30 days'], ['all', 'All time']];
+  var ranges = [['today', 'Today'], ['week', 'Last 7 days'], ['month', 'Last 30 days'],
+                ['all', 'All time'], ['custom', 'Custom dates']];
   var bar = '<div class="range-bar">' + ranges.map(function (r) {
     return '<button class="range-btn ' + (state.empRange === r[0] ? 'active' : '') +
            '" onclick="setEmpRange(\'' + r[0] + '\')">' + r[1] + '</button>';
   }).join('') + '</div>';
+
+  if (state.empRange === 'custom') {
+    bar += '<div class="panel" style="padding:16px;"><div class="row" style="max-width:520px;">' +
+      '<div class="field"><label>From</label><input type="date" value="' + esc(state.empFrom) +
+      '" onchange="setCustomFrom(this.value)"></div>' +
+      '<div class="field"><label>To</label><input type="date" value="' + esc(state.empTo) +
+      '" onchange="setCustomTo(this.value)"></div>' +
+      '</div><p style="font-size:12px;color:var(--text-muted);margin:10px 0 0;">Leave a box empty for an open end. ' +
+      'Only scans still within LogLimit are available - raise it in the Settings sheet to look further back.</p></div>';
+  }
 
   if (!stats.length) {
     return bar + '<div class="panel"><div class="empty"><div class="big">No scans in this period</div>' +
@@ -292,15 +329,36 @@ function exportEmployeeCSV() {
   var stats = computeEmployeeStats();
   var rows = [['Employee ID', 'Name', 'Stage', 'Scans', 'Pace (min)', 'Period']];
   stats.forEach(function (e) {
-    rows.push([e.id, e.name, 'ALL STAGES', e.total, e.pace === null ? '' : e.pace.toFixed(1), state.empRange]);
+    rows.push([e.id, e.name, 'ALL STAGES', e.total, e.pace === null ? '' : e.pace.toFixed(1), rangeLabel()]);
     e.stageList.forEach(function (st) {
-      rows.push([e.id, e.name, st.name, st.count, st.pace === null ? '' : st.pace.toFixed(1), state.empRange]);
+      rows.push([e.id, e.name, st.name, st.count, st.pace === null ? '' : st.pace.toFixed(1), rangeLabel()]);
     });
   });
-  downloadCSV(rows, 'employee-output-' + state.empRange + '.csv');
+  downloadCSV(rows, 'employee-output-' + rangeLabel().replace(/[^0-9a-zA-Z-]+/g, '_') + '.csv');
 }
 
 /* ---------------- Setup ---------------- */
+
+function addModel() {
+  var nameEl = document.getElementById('modelName');
+  var codeEl = document.getElementById('modelCode');
+  var cntEl = document.getElementById('modelCounter');
+  var name = nameEl.value.trim(), code = codeEl.value.trim().toUpperCase();
+  if (!name || !code) { alert('Model name and short code are both required.'); return; }
+  call('addModel', { name: name, code: code, counter: cntEl.value || 0 }).then(function () {
+    state.models.push({ name: name, code: code, counter: parseInt(cntEl.value, 10) || 0 });
+    nameEl.value = ''; codeEl.value = ''; cntEl.value = '0';
+    renderContentOnly();
+  }, function (err) { alert(err.message); });
+}
+
+function removeModelAt(i) {
+  var m = state.models[i];
+  if (!m || !confirm('Remove model "' + m.name + '"? Serials already issued are kept.')) return;
+  call('delModel', { code: m.code }).then(function () {
+    state.models.splice(i, 1); renderContentOnly();
+  }, function (err) { alert(err.message); });
+}
 
 function addStaff() {
   var nameEl = document.getElementById('staffName'), idEl = document.getElementById('staffId');
@@ -375,7 +433,26 @@ function renderSetup() {
     '<div class="table-wrap"><table><thead><tr><th>Key</th><th>Current value</th></tr></thead><tbody>' +
     settingRows + '</tbody></table></div></div>';
 
-  return settingsPanel +
+  var modelRows = state.models.map(function (m, i) {
+    return '<div class="list-row"><div><div class="name">' + esc(m.name) + '</div>' +
+      '<div class="sub">' + esc(m.code) + ' &middot; last number: ' + m.counter + '</div></div>' +
+      '<button class="icon-btn danger" onclick="removeModelAt(' + i + ')">X</button></div>';
+  }).join('');
+
+  var modelsPanel = '<div class="panel"><div class="panel-title">Battery models</div>' +
+    (modelRows || '<div class="empty">No models yet. Serials will be generated without a model code.</div>') +
+    '<div class="row" style="margin-top:12px;">' +
+      '<div class="field"><label>Model name</label><input id="modelName" placeholder="2 Wheeler 60V 30Ah"></div>' +
+      '<div class="field"><label>Short code (goes into the serial)</label><input id="modelCode" placeholder="2W60"></div>' +
+      '<div class="field"><label>Start counter at</label><input id="modelCounter" type="number" min="0" value="0"></div>' +
+    '</div>' +
+    '<div style="margin-top:10px;"><button class="btn" onclick="addModel()">Add model</button></div>' +
+    '<p style="font-size:12px;color:var(--text-muted);margin:10px 0 0;">Serial pattern: ' +
+    esc(CONFIG.SETTINGS && CONFIG.SETTINGS.SerialPrefix || 'LP-') + '&lt;code&gt;-00001. ' +
+    'Each model counts separately. To restart a model\'s numbering, edit its Counter in the Models tab of the Sheet.</p>' +
+    '</div>';
+
+  return settingsPanel + modelsPanel +
     '<div class="panel"><div class="panel-title">Employees</div>' +
       (staffRows || '<div class="empty">No employees added yet.</div>') +
       '<div class="row" style="margin-top:12px;">' +
@@ -536,16 +613,22 @@ function ensureQR(cb) {
   document.head.appendChild(a);
 }
 
+function setLabelModel(v) { state.labelModel = v; }
+
 function generateSerials() {
   var qty = parseInt(document.getElementById('labelQty').value, 10);
+  var modelEl = document.getElementById('labelModel');
+  var model = modelEl ? modelEl.value : '';
+  if (state.models.length && !model) { alert('Pick a model first.'); return; }
   if (!qty || qty < 1) { alert('Enter how many batteries you need labels for.'); return; }
   if (qty > 200) { alert('Maximum 200 at a time.'); return; }
 
   var btn = document.getElementById('genBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'Generating...'; }
 
-  call('newSerials', { qty: qty }).then(function (res) {
+  call('newSerials', { qty: qty, model: model }).then(function (res) {
     state.labels = res.serials || [];
+    state.labelModel = res.model || '';
     renderContentOnly();
   }, function (err) {
     alert('Could not generate serials: ' + err.message);
@@ -568,10 +651,25 @@ function renderLabels() {
   var w = CONFIG.LABEL_WIDTH_MM || 50;
   var h = CONFIG.LABEL_HEIGHT_MM || 25;
 
+  var modelField = '';
+  if (state.models.length) {
+    var opts = '<option value="">-- pick a model --</option>' + state.models.map(function (m) {
+      return '<option value="' + esc(m.code) + '"' + (state.labelModel === m.code ? ' selected' : '') + '>' +
+             esc(m.name) + ' (' + esc(m.code) + ')</option>';
+    }).join('');
+    modelField = '<div class="field"><label>Model</label><select id="labelModel" onchange="setLabelModel(this.value)">' +
+                 opts + '</select></div>';
+  } else {
+    modelField = '<div class="field"><label>Model</label>' +
+      '<div style="font-size:13px;color:var(--text-muted);padding:9px 0;">No models added yet - ' +
+      'add them on the Setup tab, or leave it and serials will be generated without a model.</div></div>';
+  }
+
   var head = '<div class="panel"><div class="panel-title">New battery labels</div>' +
-    '<p style="color:var(--text-muted);font-size:13.5px;margin-top:-6px;">Each serial is recorded in the ' +
-    'BatteryMaster sheet the moment it is generated, so a number is never issued twice.</p>' +
-    '<div class="row" style="max-width:320px;">' +
+    '<p style="color:var(--text-muted);font-size:13.5px;margin-top:-6px;">Each model has its own counter, and every ' +
+    'serial is recorded in the BatteryMaster sheet as it is generated, so a number is never issued twice.</p>' +
+    '<div class="row" style="max-width:560px;">' +
+      modelField +
       '<div class="field"><label>How many batteries</label>' +
       '<input id="labelQty" type="number" min="1" max="200" value="10" ' +
       'onkeydown="if(event.key===\'Enter\') generateSerials();"></div>' +
@@ -618,7 +716,7 @@ function drawLabels() {
   host.innerHTML = state.labels.map(function (sn, i) {
     return '<div class="battery-label" style="width:' + w + 'mm;height:' + h + 'mm;">' +
              '<div class="ql" id="ql' + i + '"></div>' +
-             '<div class="qt"><div class="qt-brand">LITPAX</div>' +
+             '<div class="qt"><div class="qt-brand">' + esc(state.labelModel || 'LITPAX') + '</div>' +
              '<div class="qt-serial">' + esc(sn) + '</div></div>' +
            '</div>';
   }).join('');
