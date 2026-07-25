@@ -4,7 +4,7 @@
 state = {
   hall: '',                          // set from ?hall= in the URL; '' = show all
   staff: [], stations: [], stationRows: [], packs: {},
-  currentStation: '', operator: null,
+  pendingEmp: null, pendingStation: '',   // current in-progress combo
   lastScan: null, recentScans: [],
   loading: true, connected: true, pending: 0, statusMsg: ''
 };
@@ -93,50 +93,136 @@ function sequenceWarning(packId, station) {
          '\nScanned at: ' + station + '\n\nLog it anyway?';
 }
 
+/*
+ * Per-battery combo scan. Each battery needs three scans in order:
+ *   1. Employee badge   (STAFF:<id>  or a plain id that matches a badge)
+ *   2. Station card      (STATION:<name> or a plain name that matches a station)
+ *   3. Battery serial    (anything else)
+ * The employee and station are held only until the battery lands, then the
+ * combo resets. Nothing is remembered across batteries, so two people scanning
+ * on the same PC can never write into each other's battery.
+ */
+
+function beep(ok) {
+  try {
+    var ctx = beep._c || (beep._c = new (window.AudioContext || window.webkitAudioContext)());
+    var o = ctx.createOscillator(), g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.frequency.value = ok ? 880 : 220;
+    g.gain.value = 0.08;
+    o.start();
+    setTimeout(function () { o.stop(); }, ok ? 90 : 220);
+  } catch (e) {}
+}
+
+function matchStaff(idRaw) {
+  var id = String(idRaw).trim().toLowerCase();
+  var m = null;
+  state.staff.forEach(function (s) { if (s.id.toLowerCase() === id) m = s; });
+  return m;
+}
+
+function matchStation(nameRaw) {
+  var name = String(nameRaw).trim().toLowerCase();
+  var m = null;
+  state.stations.forEach(function (s) { if (s.toLowerCase() === name) m = s; });
+  return m;
+}
+
+function resetCombo() {
+  state.pendingEmp = null;
+  state.pendingStation = '';
+}
+
 function handleUniversalScan(raw) {
   var code = String(raw || '').trim();
   if (!code) return;
   var upper = code.toUpperCase();
 
-  if (upper.indexOf('STATION:') === 0) {
-    var stName = code.substring(8).trim(), stMatch = null;
-    state.stations.forEach(function (s) { if (s.toLowerCase() === stName.toLowerCase()) stMatch = s; });
-    if (!stMatch) { flash('flash-error'); alert('Unknown station card: ' + stName); return; }
-    state.currentStation = stMatch;
-    flash('flash-context'); render();
+  // ---- explicit prefixes always win ----
+  if (upper.indexOf('STAFF:') === 0) return takeEmployee(code.substring(6).trim());
+  if (upper.indexOf('STATION:') === 0) return takeStation(code.substring(8).trim());
+
+  // ---- no prefix: decide by where we are in the combo ----
+  // Waiting for an employee: does this match a badge?
+  if (!state.pendingEmp) {
+    var asEmp = matchStaff(code);
+    if (asEmp) return takeEmployee(code);
+    // not a badge - maybe they scanned a station or battery too early
+    flash('flash-error'); beep(false);
+    alert('Scan your BADGE first.\n\n"' + code + '" is not a known employee badge.');
     return;
   }
 
-  if (upper.indexOf('STAFF:') === 0) {
-    var badge = code.substring(6).trim(), opMatch = null;
-    state.staff.forEach(function (s) { if (s.id.toLowerCase() === badge.toLowerCase()) opMatch = s; });
-    if (!opMatch) { flash('flash-error'); alert('Badge not recognized: ' + badge); return; }
-    state.operator = opMatch;
-    flash('flash-context'); render();
+  // Have employee, waiting for a station: does this match a station?
+  if (!state.pendingStation) {
+    var asStation = matchStation(code);
+    if (asStation) return takeStation(code);
+    flash('flash-error'); beep(false);
+    alert('Now scan the STATION card.\n\n"' + code + '" is not a known station.');
     return;
   }
 
-  if (!state.currentStation) { flash('flash-error'); alert('Scan a station card first, or pick one below.'); return; }
-  if (!state.operator) { flash('flash-error'); alert('Scan your badge first, or pick your name below.'); return; }
+  // Have employee + station: this is the battery.
+  commitScan(code);
+}
 
-  var warn = sequenceWarning(code, state.currentStation);
-  if (warn && !confirm(warn)) { flash('flash-error'); return; }
+function takeEmployee(idRaw) {
+  var emp = matchStaff(idRaw);
+  if (!emp) { flash('flash-error'); beep(false); alert('Badge not recognized: ' + idRaw); return; }
+  state.pendingEmp = emp;
+  state.pendingStation = '';        // fresh combo starts at station next
+  flash('flash-context'); beep(true); render();
+}
+
+function takeStation(nameRaw) {
+  if (!state.pendingEmp) {
+    flash('flash-error'); beep(false);
+    alert('Scan your BADGE first, then the station.');
+    return;
+  }
+  var st = matchStation(nameRaw);
+  if (!st) { flash('flash-error'); beep(false); alert('Unknown station card: ' + nameRaw); return; }
+  state.pendingStation = st;
+  flash('flash-context'); beep(true); render();
+}
+
+function commitScan(code) {
+  var emp = state.pendingEmp;
+  var station = state.pendingStation;
+
+  // Duplicate guard: same battery, same station, already logged this session.
+  if (state.packs[code]) {
+    var dup = state.packs[code].history.some(function (h) { return h.station === station; });
+    if (dup && !confirm('Battery ' + code + ' was already scanned at ' + station +
+                        '.\n\nLog it again?')) {
+      flash('flash-error'); beep(false);
+      resetCombo(); render();
+      return;
+    }
+  }
+
+  var warn = sequenceWarning(code, station);
+  if (warn && !confirm(warn)) { flash('flash-error'); beep(false); resetCombo(); render(); return; }
 
   // Log locally first so the operator is never blocked by network latency.
   var ts = Date.now();
-  if (!state.packs[code]) state.packs[code] = { id: code, currentStage: state.currentStation, status: 'pending', history: [] };
+  if (!state.packs[code]) state.packs[code] = { id: code, currentStage: station, status: 'pending', history: [] };
   var entry = {
-    station: state.currentStation, operatorId: state.operator.id, operatorName: state.operator.name,
+    station: station, operatorId: emp.id, operatorName: emp.name,
     timestamp: ts, result: 'pending', synced: false, failed: false
   };
   state.packs[code].history.push(entry);
-  state.packs[code].currentStage = state.currentStation;
+  state.packs[code].currentStage = station;
 
   state.lastScan = { packId: code, entry: entry };
-  state.recentScans.unshift({ packId: code, station: entry.station, operator: entry.operatorName, time: ts, entry: entry });
+  state.recentScans.unshift({ packId: code, station: station, operator: emp.name, time: ts, entry: entry });
   state.recentScans = state.recentScans.slice(0, 30);
 
-  flash('flash'); render();
+  // Keep employee + station for the NEXT battery at the same station,
+  // so a run of batteries only needs one badge + one station scan.
+  // The combo is self-contained per commit; nothing leaks between batteries.
+  flash('flash'); beep(true); render();
 
   call('scan', {
     packId: code, station: entry.station,
@@ -189,26 +275,24 @@ function retryFailed() {
   });
 }
 
-/* ---------------- Manual overrides ---------------- */
+/* ---------------- Manual overrides (for a missing card/badge) ---------------- */
 
-function manualStation(v) { state.currentStation = v; render(); }
-function manualOperator(v) {
-  state.operator = null;
-  state.staff.forEach(function (s) { if (s.id === v) state.operator = s; });
-  render();
-}
+function manualStation(v) { if (v) takeStation(v); }
+function manualOperator(v) { if (v) takeEmployee(v); }
+function clearCombo() { resetCombo(); render(); }
 
 /* ---------------- Render ---------------- */
 
 function renderContextBar() {
+  var step = !state.pendingEmp ? '1' : !state.pendingStation ? '2' : '3';
   document.getElementById('contextBar').innerHTML =
     '<div class="context-pill floor">' + esc(state.hall || CONFIG.FLOOR || 'ALL HALLS') + '</div>' +
-    (state.currentStation
-      ? '<div class="context-pill">STATION: ' + esc(state.currentStation) + '</div>'
-      : '<div class="context-pill empty">No station scanned</div>') +
-    (state.operator
-      ? '<div class="context-pill">EMPLOYEE: ' + esc(state.operator.name) + '</div>'
-      : '<div class="context-pill empty">No employee scanned</div>');
+    (state.pendingEmp
+      ? '<div class="context-pill">EMPLOYEE: ' + esc(state.pendingEmp.name) + '</div>'
+      : '<div class="context-pill empty">1. scan badge</div>') +
+    (state.pendingStation
+      ? '<div class="context-pill">STATION: ' + esc(state.pendingStation) + '</div>'
+      : '<div class="context-pill empty">2. scan station</div>');
 }
 
 function renderScan() {
@@ -219,12 +303,18 @@ function renderScan() {
 
   var stOptions = '<option value="">-- pick manually --</option>';
   state.stations.forEach(function (s) {
-    stOptions += '<option value="' + esc(s) + '"' + (state.currentStation === s ? ' selected' : '') + '>' + esc(s) + '</option>';
+    stOptions += '<option value="' + esc(s) + '"' + (state.pendingStation === s ? ' selected' : '') + '>' + esc(s) + '</option>';
   });
   var opOptions = '<option value="">-- pick manually --</option>';
   state.staff.forEach(function (s) {
-    opOptions += '<option value="' + esc(s.id) + '"' + (state.operator && state.operator.id === s.id ? ' selected' : '') + '>' + esc(s.name) + '</option>';
+    opOptions += '<option value="' + esc(s.id) + '"' + (state.pendingEmp && state.pendingEmp.id === s.id ? ' selected' : '') + '>' + esc(s.name) + '</option>';
   });
+
+  var stepMsg = !state.pendingEmp
+    ? 'Step 1 of 3 - scan the EMPLOYEE badge'
+    : !state.pendingStation
+      ? 'Step 2 of 3 - scan the STATION card'
+      : 'Step 3 of 3 - scan the BATTERY (repeats for each battery here)';
 
   var lastScanHtml = '';
   if (state.lastScan) {
@@ -256,16 +346,22 @@ function renderScan() {
     ? '<div style="margin-top:12px;"><button class="btn secondary" onclick="retryFailed()">Retry ' + failed + ' held scan(s)</button></div>'
     : '';
 
+  var comboReady = state.pendingEmp && state.pendingStation;
+  var resetBtn = (state.pendingEmp || state.pendingStation)
+    ? '<button class="btn secondary" style="margin-top:10px;" onclick="clearCombo()">Reset (start over)</button>'
+    : '';
+
   return '<div class="panel">' +
-      '<div class="scan-box" id="scanBox">' +
-        '<input id="universalScan" type="text" placeholder="Scan station card, badge, or battery" autocomplete="off" ' +
+      '<div class="scan-box' + (comboReady ? ' ready' : '') + '" id="scanBox">' +
+        '<input id="universalScan" type="text" placeholder="' + esc(stepMsg) + '" autocomplete="off" ' +
         'onkeydown="if(event.key===\'Enter\'){handleUniversalScan(this.value); this.value=\'\';}">' +
-        '<div class="scan-hint">Ready to scan</div>' +
+        '<div class="scan-hint">' + esc(stepMsg) + '</div>' +
         '<div class="scan-readout">' + (state.lastScan ? 'Last battery: ' + esc(state.lastScan.packId) : 'No scans yet') + '</div>' +
       '</div>' +
-      '<div class="row">' +
-        '<div class="field"><label>Station (manual override)</label><select onchange="manualStation(this.value)">' + stOptions + '</select></div>' +
-        '<div class="field"><label>Employee (manual override)</label><select onchange="manualOperator(this.value)">' + opOptions + '</select></div>' +
+      resetBtn +
+      '<div class="row" style="margin-top:12px;">' +
+        '<div class="field"><label>Employee (if badge missing)</label><select onchange="manualOperator(this.value)">' + opOptions + '</select></div>' +
+        '<div class="field"><label>Station (if card missing)</label><select onchange="manualStation(this.value)">' + stOptions + '</select></div>' +
       '</div>' +
       lastScanHtml + retryBar +
     '</div>' +
