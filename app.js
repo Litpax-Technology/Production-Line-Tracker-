@@ -2,11 +2,26 @@
    No dashboard, no setup, no reports. Just scanning. */
 
 state = {
-  staff: [], stations: [], packs: {},
+  hall: '',                          // set from ?hall= in the URL; '' = show all
+  staff: [], stations: [], stationRows: [], packs: {},
   currentStation: '', operator: null,
   lastScan: null, recentScans: [],
   loading: true, connected: true, pending: 0, statusMsg: ''
 };
+
+(function () {
+  try {
+    var u = new URLSearchParams(window.location.search);
+    state.hall = (u.get('hall') || '').trim();
+  } catch (e) {}
+})();
+
+/** Keep only items in the active hall. Empty hall on an item = shown everywhere. */
+function inHall(itemHall) {
+  if (!state.hall) return true;
+  if (!itemHall) return true;
+  return itemHall.toLowerCase() === state.hall.toLowerCase();
+}
 
 /* ---------------- Load ---------------- */
 
@@ -15,8 +30,10 @@ function loadAll() {
   // Settings sheet has out-of-sequence checking switched on.
   return call('init', { limit: 0 }).then(function (res) {
     applySettings(res.settings);
-    state.staff = res.staff || [];
-    state.stations = res.stations || [];
+    var rows = res.stationRows || [];
+    state.stationRows = rows.filter(function (r) { return inHall(r.hall); });
+    state.stations = state.stationRows.map(function (r) { return r.name; });
+    state.staff = (res.staff || []).filter(function (s) { return inHall(s.hall); });
     state.loading = false;
     render();
     startPolling();
@@ -42,8 +59,10 @@ function refreshLists() {
   if (state.pending > 0) return;
   call('init', { limit: 0 }).then(function (res) {
     applySettings(res.settings);
-    state.staff = res.staff || [];
-    state.stations = res.stations || [];
+    var rows = res.stationRows || [];
+    state.stationRows = rows.filter(function (r) { return inHall(r.hall); });
+    state.stations = state.stationRows.map(function (r) { return r.name; });
+    state.staff = (res.staff || []).filter(function (s) { return inHall(s.hall); });
   }, function () { /* the dot already shows the state */ });
 }
 
@@ -183,7 +202,7 @@ function manualOperator(v) {
 
 function renderContextBar() {
   document.getElementById('contextBar').innerHTML =
-    '<div class="context-pill floor">' + esc(CONFIG.FLOOR || 'NO FLOOR') + '</div>' +
+    '<div class="context-pill floor">' + esc(state.hall || CONFIG.FLOOR || 'ALL HALLS') + '</div>' +
     (state.currentStation
       ? '<div class="context-pill">STATION: ' + esc(state.currentStation) + '</div>'
       : '<div class="context-pill empty">No station scanned</div>') +
