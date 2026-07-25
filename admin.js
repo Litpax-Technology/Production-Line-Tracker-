@@ -9,7 +9,7 @@ state = {
   empRange: 'today', expandedEmp: null,
   sel: { station: {}, staff: {} },   // false = unchecked; missing = checked
   labels: [], labelModel: '',        // serials currently laid out for printing
-  models: [],
+  models: [], halls: [], stationRows: [],
   empFrom: '', empTo: '',            // custom date range on the Employees tab
   loading: true, connected: true, pending: 0, statusMsg: ''
 };
@@ -66,6 +66,8 @@ function loadAll() {
     state.models = res.models || [];
     state.staff = res.staff || [];
     state.stations = res.stations || [];
+    state.stationRows = res.stationRows || [];
+    state.halls = res.halls || [];
     state.logs = res.logs || [];
     state.packs = buildPacks(state.logs);
     state.loading = false;
@@ -84,6 +86,8 @@ function refreshAll() {
     state.models = res.models || [];
     state.staff = res.staff || [];
     state.stations = res.stations || [];
+    state.stationRows = res.stationRows || [];
+    state.halls = res.halls || [];
     state.logs = res.logs || [];
     state.packs = buildPacks(state.logs);
     if (state.tab === 'dashboard' || state.tab === 'employees') renderContentOnly();
@@ -360,13 +364,41 @@ function removeModelAt(i) {
   }, function (err) { alert(err.message); });
 }
 
+function hallOptions(sel, allowNew) {
+  var opts = '<option value="">-- pick hall --</option>';
+  state.halls.forEach(function (h) {
+    opts += '<option value="' + esc(h) + '"' + (sel === h ? ' selected' : '') + '>' + esc(h) + '</option>';
+  });
+  if (allowNew) opts += '<option value="__new__">+ new hall...</option>';
+  return opts;
+}
+
+function hallFromField(selId, newId) {
+  var sel = document.getElementById(selId);
+  var v = sel ? sel.value : '';
+  if (v === '__new__') {
+    var nv = document.getElementById(newId);
+    return nv ? nv.value.trim() : '';
+  }
+  return v;
+}
+
+function onHallSelect(selId, newWrapId) {
+  var sel = document.getElementById(selId);
+  var wrap = document.getElementById(newWrapId);
+  if (wrap) wrap.style.display = (sel && sel.value === '__new__') ? 'flex' : 'none';
+}
+
 function addStaff() {
   var nameEl = document.getElementById('staffName'), idEl = document.getElementById('staffId');
   var name = nameEl.value.trim(), id = idEl.value.trim();
+  var hall = hallFromField('staffHall', 'staffHallNew');
   if (!name || !id) { alert('Name and Badge ID are both required.'); return; }
   if (/\s/.test(id)) { alert('Badge ID cannot contain spaces. Check that Name and Badge ID are not swapped.'); return; }
-  call('addStaff', { id: id, name: name }).then(function () {
-    state.staff.push({ id: id, name: name });
+  if (!hall) { alert('Pick or type the hall for this employee.'); return; }
+  call('addStaff', { id: id, name: name, hall: hall }).then(function () {
+    state.staff.push({ id: id, name: name, hall: hall });
+    if (state.halls.indexOf(hall) < 0) state.halls.push(hall);
     nameEl.value = ''; idEl.value = '';
     renderContentOnly();
   }, function (err) { alert(err.message); });
@@ -383,9 +415,14 @@ function removeStaffAt(i) {
 function addStation() {
   var el = document.getElementById('stationName');
   var name = el.value.trim();
+  var hall = hallFromField('stationHall', 'stationHallNew');
   if (!name) return;
-  call('addStation', { name: name }).then(function () {
-    state.stations.push(name); el.value = ''; renderContentOnly();
+  if (!hall) { alert('Pick or type the hall for this station.'); return; }
+  call('addStation', { name: name, hall: hall }).then(function () {
+    state.stations.push(name);
+    state.stationRows.push({ name: name, hall: hall });
+    if (state.halls.indexOf(hall) < 0) state.halls.push(hall);
+    el.value = ''; renderContentOnly();
   }, function (err) { alert(err.message); });
 }
 
@@ -393,7 +430,16 @@ function removeStationAt(i) {
   var s = state.stations[i];
   if (!s || !confirm('Remove station "' + s + '"? Past scan history is kept.')) return;
   call('delStation', { name: s }).then(function () {
-    state.stations.splice(i, 1); renderContentOnly();
+    state.stations.splice(i, 1);
+    state.stationRows = state.stationRows.filter(function (r) { return r.name !== s; });
+    renderContentOnly();
+  }, function (err) { alert(err.message); });
+}
+
+function changeStationHall(name, hall) {
+  call('setStationHall', { name: name, hall: hall }).then(function () {
+    state.stationRows.forEach(function (r) { if (r.name === name) r.hall = hall; });
+    if (hall && state.halls.indexOf(hall) < 0) { state.halls.push(hall); renderContentOnly(); }
   }, function (err) { alert(err.message); });
 }
 
@@ -409,13 +455,24 @@ function moveStation(i, dir) {
 
 function renderSetup() {
   var staffRows = state.staff.map(function (s, i) {
-    return '<div class="list-row"><div><div class="name">' + esc(s.name) + '</div><div class="sub">' + esc(s.id) + '</div></div>' +
+    var hall = s.hall ? '<span class="hall-tag">' + esc(s.hall) + '</span>' : '<span class="hall-tag warn">no hall</span>';
+    return '<div class="list-row"><div><div class="name">' + esc(s.name) + ' ' + hall + '</div>' +
+           '<div class="sub">' + esc(s.id) + '</div></div>' +
            '<button class="icon-btn danger" onclick="removeStaffAt(' + i + ')">X</button></div>';
   }).join('');
 
   var stationRows = state.stations.map(function (s, i) {
+    var row = null;
+    state.stationRows.forEach(function (r) { if (r.name === s) row = r; });
+    var curHall = row ? row.hall : '';
+    var hallSel = '<select class="hall-inline" onchange="changeStationHall(\'' + esc(s).replace(/'/g, '') + '\', this.value)">' +
+      '<option value="">no hall</option>' +
+      state.halls.map(function (h) {
+        return '<option value="' + esc(h) + '"' + (curHall === h ? ' selected' : '') + '>' + esc(h) + '</option>';
+      }).join('') + '</select>';
     return '<div class="list-row"><div><span class="mono" style="color:var(--accent)">' + (i + 1) + '</span> &nbsp; ' +
-      '<span class="name">' + esc(s) + '</span></div><div style="display:flex;gap:6px;">' +
+      '<span class="name">' + esc(s) + '</span></div><div style="display:flex;gap:6px;align-items:center;">' +
+      hallSel +
       '<button class="icon-btn" onclick="moveStation(' + i + ',-1)">Up</button>' +
       '<button class="icon-btn" onclick="moveStation(' + i + ',1)">Dn</button>' +
       '<button class="icon-btn danger" onclick="removeStationAt(' + i + ')">X</button></div></div>';
@@ -456,16 +513,23 @@ function renderSetup() {
     '<div class="panel"><div class="panel-title">Employees</div>' +
       (staffRows || '<div class="empty">No employees added yet.</div>') +
       '<div class="row" style="margin-top:12px;">' +
-        '<div class="field"><label>Name (e.g. the person\'s full name)</label><input id="staffName" placeholder="Full name"></div>' +
+        '<div class="field"><label>Name</label><input id="staffName" placeholder="Full name"></div>' +
         '<div class="field"><label>Badge ID (goes on the barcode)</label><input id="staffId" placeholder="OP-101"></div>' +
+        '<div class="field"><label>Hall</label><select id="staffHall" onchange="onHallSelect(\'staffHall\',\'staffHallNewWrap\')">' + hallOptions('', true) + '</select></div>' +
       '</div>' +
+      '<div class="row" id="staffHallNewWrap" style="display:none;margin-top:8px;"><div class="field"><label>New hall name</label><input id="staffHallNew" placeholder="2 Wheeler"></div></div>' +
       '<div style="margin-top:10px;"><button class="btn" onclick="addStaff()">Add employee</button></div>' +
       '<p style="font-size:12px;color:var(--text-muted);margin:10px 0 0;">The card below shows the name in bold and the badge ID underneath. If they look swapped, remove and re-add.</p>' +
     '</div>' +
-    '<div class="panel"><div class="panel-title">Stations (order = line sequence)</div>' +
+    '<div class="panel"><div class="panel-title">Stations (order = line sequence, grouped by hall)</div>' +
       (stationRows || '<div class="empty">No stations added yet.</div>') +
-      '<div class="row" style="margin-top:12px;"><div class="field"><label>New station name</label><input id="stationName" placeholder="Spot Welding"></div></div>' +
+      '<div class="row" style="margin-top:12px;">' +
+        '<div class="field"><label>New station name</label><input id="stationName" placeholder="Spot Welding"></div>' +
+        '<div class="field"><label>Hall</label><select id="stationHall" onchange="onHallSelect(\'stationHall\',\'stationHallNewWrap\')">' + hallOptions('', true) + '</select></div>' +
+      '</div>' +
+      '<div class="row" id="stationHallNewWrap" style="display:none;margin-top:8px;"><div class="field"><label>New hall name</label><input id="stationHallNew" placeholder="Prismatic"></div></div>' +
       '<div style="margin-top:10px;"><button class="btn" onclick="addStation()">Add station</button></div>' +
+      '<p style="font-size:12px;color:var(--text-muted);margin:10px 0 0;">Each station belongs to one hall. Change a station\'s hall from the dropdown next to it above.</p>' +
     '</div>';
 }
 
@@ -792,7 +856,7 @@ function render() {
 }
 
 /* ---------------- Boot ---------------- */
-if (!CONFIG.ADMIN_PIN) state.unlocked = true;
+
 try {
   if (sessionStorage.getItem('plt_admin') === '1') state.unlocked = true;
 } catch (e) {}
