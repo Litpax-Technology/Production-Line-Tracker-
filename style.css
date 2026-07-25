@@ -252,3 +252,7 @@ textarea.search-input{resize:vertical;font-family:var(--mono);font-size:13px;}
 .hall-inline{background:var(--surface);border:1px solid var(--border-strong);color:var(--text);
   border-radius:7px;padding:5px 8px;font-size:12px;max-width:130px;}
 .hall-inline:focus{outline:none;border-color:var(--accent);}
+
+/* ---------- Combo scan: ready state ---------- */
+.scan-box.ready{border-style:solid;border-color:var(--success);background:var(--success-dim);}
+.scan-box.ready .scan-hint{color:var(--success);}
