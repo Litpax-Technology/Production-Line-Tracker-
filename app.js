@@ -138,9 +138,12 @@ function handleUniversalScan(raw) {
   var code = String(raw || '').trim();
   if (!code) return;
 
-  // Some Bluetooth scanners send > or ; in place of ':' due to keyboard layout.
-  // Normalise any of them right after the STAFF / STATION keyword.
-  code = code.replace(/^(STAFF|STATION)\s*[:>;]\s*/i, '$1:');
+  // Some Bluetooth scanners map ':' to a different character (>, ?, ; ...)
+  // because of a keyboard-layout mismatch. Accept ANY single non-alphanumeric
+  // separator right after the STAFF / STATION keyword.
+  code = code.replace(/^(STAFF|STATION)[^A-Za-z0-9]+/i, function (m, kw) {
+    return kw.toUpperCase() + ':';
+  });
   var upper = code.toUpperCase();
 
   // ---- explicit prefixes always win ----
@@ -240,18 +243,6 @@ function commitScan(code) {
   });
 }
 
-function setResult(result) {
-  if (!state.lastScan) return;
-  var entry = state.lastScan.entry;
-  var prev = entry.result;
-  entry.result = result;
-  render();
-  call('result', { packId: state.lastScan.packId, result: result }).then(null, function (err) {
-    entry.result = prev; render();
-    alert('Could not save the result: ' + err.message);
-  });
-}
-
 function failedList() {
   var out = [];
   Object.keys(state.packs).forEach(function (pid) {
@@ -330,11 +321,6 @@ function renderScan() {
       '<div class="last-scan">' +
         '<div><div class="id">' + esc(state.lastScan.packId) + '</div>' +
         '<div class="meta">' + esc(e.station) + ' &middot; ' + esc(e.operatorName) + ' &middot; ' + fmtTime(e.timestamp) + ' &middot; ' + sync + '</div></div>' +
-        '<div class="qc-btns">' +
-          '<button class="qc-btn pass ' + (e.result === 'pass' ? 'active' : '') + '" onclick="setResult(\'pass\')">Pass</button>' +
-          '<button class="qc-btn fail ' + (e.result === 'fail' ? 'active' : '') + '" onclick="setResult(\'fail\')">Fail</button>' +
-          '<button class="qc-btn rework ' + (e.result === 'rework' ? 'active' : '') + '" onclick="setResult(\'rework\')">Rework</button>' +
-        '</div>' +
       '</div>';
   }
 
