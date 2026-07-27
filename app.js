@@ -293,16 +293,7 @@ function renderScan() {
            'Add employees and stations on the admin page, then set each scanner\'s prefix.</div></div>';
   }
 
-  var stOptions = '<option value="">-- no prefix: pick station --</option>';
-  state.stations.forEach(function (s) {
-    stOptions += '<option value="' + esc(s) + '"' + (state.manualStation === s ? ' selected' : '') + '>' + esc(s) + '</option>';
-  });
-  var opOptions = '<option value="">-- sign in an employee --</option>';
-  state.staff.forEach(function (s) {
-    opOptions += '<option value="' + esc(s.id) + '">' + esc(s.name) + '</option>';
-  });
-
-  var hint = 'Scan a battery. The scanner\'s prefix picks the station; the badge scanned there is the employee.';
+  var hint = 'Scan a battery. The scanner prefix sets the station; the badge scanned there is the employee.';
 
   var lastScanHtml = '';
   if (state.lastScan) {
@@ -340,35 +331,32 @@ function renderScan() {
     var emp = state.stationEmp[st];
     var count = emp ? (sessionCount[st + '||' + emp.name] || 0) : 0;
     if (emp) {
+      var initials = emp.name.trim().split(/\s+/).map(function (w) { return w[0]; }).join('').slice(0, 2).toUpperCase();
       return '<div class="board-card active">' +
         '<div class="board-station">' + esc(st) + '</div>' +
-        '<div class="board-emp">' + esc(emp.name) + '</div>' +
-        '<div class="board-meta">' + count + ' scanned this session</div>' +
+        '<div class="board-who"><span class="board-avatar">' + esc(initials) + '</span>' +
+        '<span class="board-emp">' + esc(emp.name) + '</span></div>' +
+        '<div class="board-meta">' + count + ' scanned</div>' +
       '</div>';
     }
     return '<div class="board-card">' +
       '<div class="board-station">' + esc(st) + '</div>' +
-      '<div class="board-emp empty">no one signed in</div>' +
-      '<div class="board-meta">scan a badge to start</div>' +
+      '<div class="board-emp empty">open</div>' +
     '</div>';
   }).join('');
   var board = '<div class="panel"><div class="panel-title">Who is on each station</div>' +
     '<div class="board-grid">' + boardCards + '</div></div>';
 
-  return board +
-    '<div class="panel">' +
+  return '<div class="panel scan-panel">' +
       '<div class="scan-box" id="scanBox">' +
         '<input id="universalScan" type="text" placeholder="Scan badge or battery" autocomplete="off" ' +
         'onkeydown="if(event.key===\'Enter\'){handleUniversalScan(this.value); this.value=\'\';}">' +
         '<div class="scan-hint">' + esc(hint) + '</div>' +
         '<div class="scan-readout">' + (state.lastScan ? 'Last battery: ' + esc(state.lastScan.packId) : 'No scans yet') + '</div>' +
       '</div>' +
-      '<div class="row" style="margin-top:12px;">' +
-        '<div class="field"><label>Testing station (only if scanner has no prefix)</label><select onchange="setManualStation(this.value)">' + stOptions + '</select></div>' +
-        '<div class="field"><label>Sign in employee here (badge missing)</label><select onchange="manualOperator(this.value)">' + opOptions + '</select></div>' +
-      '</div>' +
       lastScanHtml + retryBar +
     '</div>' +
+    board +
     '<div class="panel"><div class="panel-title">Scanned this session</div>' +
       (state.recentScans.length
         ? '<div class="table-wrap"><table><thead><tr><th>Battery</th><th>Station</th><th>Employee</th><th>Time</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
