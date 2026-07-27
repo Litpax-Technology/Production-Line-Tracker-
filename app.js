@@ -137,6 +137,10 @@ function resetCombo() {
 function handleUniversalScan(raw) {
   var code = String(raw || '').trim();
   if (!code) return;
+
+  // Some Bluetooth scanners send > or ; in place of ':' due to keyboard layout.
+  // Normalise any of them right after the STAFF / STATION keyword.
+  code = code.replace(/^(STAFF|STATION)\s*[:>;]\s*/i, '$1:');
   var upper = code.toUpperCase();
 
   // ---- explicit prefixes always win ----
