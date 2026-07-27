@@ -283,15 +283,8 @@ function manualOperator(v) {
 /* ---------------- Render ---------------- */
 
 function renderContextBar() {
-  var pills = '<div class="context-pill floor">' + esc(state.hall || CONFIG.FLOOR || 'ALL HALLS') + '</div>';
-  // Show who is signed in at each station that has someone.
-  var any = false;
-  Object.keys(state.stationEmp).forEach(function (st) {
-    var e = state.stationEmp[st];
-    if (e) { any = true; pills += '<div class="context-pill">' + esc(st) + ': ' + esc(e.name) + '</div>'; }
-  });
-  if (!any) pills += '<div class="context-pill empty">no employee signed in yet</div>';
-  document.getElementById('contextBar').innerHTML = pills;
+  document.getElementById('contextBar').innerHTML =
+    '<div class="context-pill floor">' + esc(state.hall || CONFIG.FLOOR || 'ALL HALLS') + '</div>';
 }
 
 function renderScan() {
@@ -336,7 +329,34 @@ function renderScan() {
     ? '<div style="margin-top:12px;"><button class="btn secondary" onclick="retryFailed()">Retry ' + failed + ' held scan(s)</button></div>'
     : '';
 
-  return '<div class="panel">' +
+  // Live board: one card per station in this hall, showing who is signed in
+  // and how many batteries they have scanned this session.
+  var sessionCount = {};
+  state.recentScans.forEach(function (r) {
+    var k = r.station + '||' + r.operator;
+    sessionCount[k] = (sessionCount[k] || 0) + 1;
+  });
+  var boardCards = state.stations.map(function (st) {
+    var emp = state.stationEmp[st];
+    var count = emp ? (sessionCount[st + '||' + emp.name] || 0) : 0;
+    if (emp) {
+      return '<div class="board-card active">' +
+        '<div class="board-station">' + esc(st) + '</div>' +
+        '<div class="board-emp">' + esc(emp.name) + '</div>' +
+        '<div class="board-meta">' + count + ' scanned this session</div>' +
+      '</div>';
+    }
+    return '<div class="board-card">' +
+      '<div class="board-station">' + esc(st) + '</div>' +
+      '<div class="board-emp empty">no one signed in</div>' +
+      '<div class="board-meta">scan a badge to start</div>' +
+    '</div>';
+  }).join('');
+  var board = '<div class="panel"><div class="panel-title">Who is on each station</div>' +
+    '<div class="board-grid">' + boardCards + '</div></div>';
+
+  return board +
+    '<div class="panel">' +
       '<div class="scan-box" id="scanBox">' +
         '<input id="universalScan" type="text" placeholder="Scan badge or battery" autocomplete="off" ' +
         'onkeydown="if(event.key===\'Enter\'){handleUniversalScan(this.value); this.value=\'\';}">' +
