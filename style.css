@@ -228,3 +228,14 @@ td .sub{font-size:11.5px;color:var(--text-muted);font-family:var(--mono);margin-
   .battery-label{border:1px dotted #999;}
   @page{margin:6mm;}
 }
+
+/* ---------- Live "who is on each station" board (scan page) ---------- */
+.board-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;}
+.board-card{background:var(--surface-2);border:1px solid var(--border);border-left:3px solid var(--border-strong);border-radius:0 10px 10px 0;padding:14px 16px;}
+.board-card.active{border-left-color:var(--accent);background:var(--accent-soft);}
+.board-station{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);font-weight:700;}
+.board-emp{font-size:22px;font-weight:700;color:var(--accent-hi);margin-top:4px;line-height:1.1;}
+.board-emp.empty{font-size:15px;font-weight:500;color:var(--text-faint);}
+.board-meta{font-size:11.5px;color:var(--text-muted);margin-top:4px;font-family:var(--mono);}
+.app-scan .board-emp{font-size:28px;}
+.app-scan .board-station{font-size:12px;}
