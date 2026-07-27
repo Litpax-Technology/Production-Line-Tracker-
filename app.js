@@ -4,7 +4,7 @@
 state = {
   hall: '',                          // set from ?hall= in the URL; '' = show all
   staff: [], stations: [], stationRows: [], packs: {},
-  pendingEmp: null, pendingStation: '',   // current in-progress combo
+  stationEmp: {}, manualStation: '',   // per-station employee; manual station for prefix-less scans
   lastScan: null, recentScans: [],
   loading: true, connected: true, pending: 0, statusMsg: ''
 };
@@ -75,33 +75,27 @@ function flash(cls) {
   setTimeout(function () { box.classList.remove(cls); }, 400);
 }
 
-function sequenceWarning(packId, station) {
-  if (!CONFIG.ENFORCE_SEQUENCE) return false;
-  var idx = state.stations.indexOf(station);
-  if (idx < 0) return false;
-  var pack = state.packs[packId];
-  var lastIdx = -1;
-  if (pack) {
-    pack.history.forEach(function (h) {
-      var i = state.stations.indexOf(h.station);
-      if (i > lastIdx) lastIdx = i;
-    });
-  }
-  if (idx === lastIdx + 1) return false;
-  var expected = state.stations[lastIdx + 1] || 'end of line';
-  return 'Out of sequence.\n\nBattery: ' + packId + '\nExpected next: ' + expected +
-         '\nScanned at: ' + station + '\n\nLog it anyway?';
-}
-
 /*
- * Per-battery combo scan. Each battery needs three scans in order:
- *   1. Employee badge   (STAFF:<id>  or a plain id that matches a badge)
- *   2. Station card      (STATION:<name> or a plain name that matches a station)
- *   3. Battery serial    (anything else)
- * The employee and station are held only until the battery lands, then the
- * combo resets. Nothing is remembered across batteries, so two people scanning
- * on the same PC can never write into each other's battery.
+ * PREFIX MODEL. Every scanner carries a fixed station prefix, e.g. "IR:".
+ * So each scan is self-contained - the station comes with the scan, nothing
+ * is remembered globally. Because of that, two people scanning on the same
+ * PC can never corrupt each other's battery.
+ *
+ * Per station we remember ONLY the current employee (set by a badge scan at
+ * that station). Employees are held per-station, so IR's operator and Spot's
+ * operator never mix.
+ *
+ * Scan shapes (prefix is whatever each scanner is set to send):
+ *   IR:STAFF:96      badge sign-in at IR      (or IR:96 if it matches a badge)
+ *   IR:LP0011        battery at IR
+ * Without a prefix the app falls back to a single "manual" station chosen
+ * from the dropdown - handy when testing with one scanner.
  */
+
+// current employee per station: { "IR": {id,name}, "Spot": {...} }
+state.stationEmp = state.stationEmp || {};
+// manual station when a scan has no prefix (single-scanner testing)
+state.manualStation = state.manualStation || '';
 
 function beep(ok) {
   try {
@@ -129,88 +123,93 @@ function matchStation(nameRaw) {
   return m;
 }
 
-function resetCombo() {
-  state.pendingEmp = null;
-  state.pendingStation = '';
+/**
+ * Splits a raw scan into { station, rest }.
+ * The station comes from the scanner's prefix ("IR:LP0011" -> station IR).
+ * Any separator char is tolerated (:, >, ? ...) because of keyboard layout.
+ * If the first segment is not a known station, there is no prefix: station
+ * falls back to the manual dropdown selection.
+ */
+function splitScan(raw) {
+  var code = String(raw || '').trim();
+  // Normalise STAFF/STATION keyword separators too.
+  code = code.replace(/^(STAFF|STATION)[^A-Za-z0-9]+/i, function (m, kw) { return kw.toUpperCase() + ':'; });
+
+  // Does it start with "<something><sep>..."? Try to read a station prefix.
+  var m = code.match(/^([A-Za-z0-9 ]+?)[^A-Za-z0-9]+(.+)$/);
+  if (m) {
+    var st = matchStation(m[1]);
+    if (st) return { station: st, rest: m[2].trim() };
+  }
+  // No usable prefix - use the manual station (if any).
+  return { station: state.manualStation, rest: code };
 }
 
 function handleUniversalScan(raw) {
-  var code = String(raw || '').trim();
-  if (!code) return;
+  var parts = splitScan(raw);
+  var station = parts.station;
+  var rest = parts.rest;
 
-  // Some Bluetooth scanners map ':' to a different character (>, ?, ; ...)
-  // because of a keyboard-layout mismatch. Accept ANY single non-alphanumeric
-  // separator right after the STAFF / STATION keyword.
-  code = code.replace(/^(STAFF|STATION)[^A-Za-z0-9]+/i, function (m, kw) {
-    return kw.toUpperCase() + ':';
-  });
-  var upper = code.toUpperCase();
-
-  // ---- explicit prefixes always win ----
-  if (upper.indexOf('STAFF:') === 0) return takeEmployee(code.substring(6).trim());
-  if (upper.indexOf('STATION:') === 0) return takeStation(code.substring(8).trim());
-
-  // ---- no prefix: decide by where we are in the combo ----
-  // Waiting for an employee: does this match a badge?
-  if (!state.pendingEmp) {
-    var asEmp = matchStaff(code);
-    if (asEmp) return takeEmployee(code);
-    // not a badge - maybe they scanned a station or battery too early
+  if (!station) {
     flash('flash-error'); beep(false);
-    alert('Scan your BADGE first.\n\n"' + code + '" is not a known employee badge.');
+    alert('No station on this scan.\n\nEither the scanner has no station prefix set, ' +
+          'or pick a station below for testing.');
     return;
   }
 
-  // Have employee, waiting for a station: does this match a station?
-  if (!state.pendingStation) {
-    var asStation = matchStation(code);
-    if (asStation) return takeStation(code);
-    flash('flash-error'); beep(false);
-    alert('Now scan the STATION card.\n\n"' + code + '" is not a known station.');
+  // A badge sign-in? Either "STAFF:96" or a bare id that matches a badge.
+  var badgeId = rest;
+  if (/^STAFF:/i.test(rest)) badgeId = rest.replace(/^STAFF:/i, '').trim();
+  var emp = matchStaff(badgeId);
+  if (emp) {
+    state.stationEmp[station] = emp;
+    flash('flash-context'); beep(true); render();
     return;
   }
 
-  // Have employee + station: this is the battery.
-  commitScan(code);
-}
-
-function takeEmployee(idRaw) {
-  var emp = matchStaff(idRaw);
-  if (!emp) { flash('flash-error'); beep(false); alert('Badge not recognized: ' + idRaw); return; }
-  state.pendingEmp = emp;
-  state.pendingStation = '';        // fresh combo starts at station next
-  flash('flash-context'); beep(true); render();
-}
-
-function takeStation(nameRaw) {
-  if (!state.pendingEmp) {
+  // Otherwise it is a battery scan for this station.
+  var operator = state.stationEmp[station];
+  if (!operator) {
     flash('flash-error'); beep(false);
-    alert('Scan your BADGE first, then the station.');
+    alert('No employee signed in at ' + station + '.\n\n' +
+          'Scan an employee badge on this scanner first.');
     return;
   }
-  var st = matchStation(nameRaw);
-  if (!st) { flash('flash-error'); beep(false); alert('Unknown station card: ' + nameRaw); return; }
-  state.pendingStation = st;
-  flash('flash-context'); beep(true); render();
+
+  commitScan(rest, station, operator);
 }
 
-function commitScan(code) {
-  var emp = state.pendingEmp;
-  var station = state.pendingStation;
+function sequenceWarning(packId, station) {
+  if (!CONFIG.ENFORCE_SEQUENCE) return false;
+  var idx = state.stations.indexOf(station);
+  if (idx < 0) return false;
+  var pack = state.packs[packId];
+  var lastIdx = -1;
+  if (pack) {
+    pack.history.forEach(function (h) {
+      var i = state.stations.indexOf(h.station);
+      if (i > lastIdx) lastIdx = i;
+    });
+  }
+  if (idx === lastIdx + 1) return false;
+  var expected = state.stations[lastIdx + 1] || 'end of line';
+  return 'Out of sequence.\n\nBattery: ' + packId + '\nExpected next: ' + expected +
+         '\nScanned at: ' + station + '\n\nLog it anyway?';
+}
 
+function commitScan(code, station, emp) {
   // Duplicate guard: same battery, same station, already logged this session.
   if (state.packs[code]) {
     var dup = state.packs[code].history.some(function (h) { return h.station === station; });
     if (dup && !confirm('Battery ' + code + ' was already scanned at ' + station +
                         '.\n\nLog it again?')) {
-      flash('flash-error'); beep(false);
-      resetCombo(); render();
+      flash('flash-error'); beep(false); render();
       return;
     }
   }
 
   var warn = sequenceWarning(code, station);
-  if (warn && !confirm(warn)) { flash('flash-error'); beep(false); resetCombo(); render(); return; }
+  if (warn && !confirm(warn)) { flash('flash-error'); beep(false); render(); return; }
 
   // Log locally first so the operator is never blocked by network latency.
   var ts = Date.now();
@@ -226,9 +225,6 @@ function commitScan(code) {
   state.recentScans.unshift({ packId: code, station: station, operator: emp.name, time: ts, entry: entry });
   state.recentScans = state.recentScans.slice(0, 30);
 
-  // Keep employee + station for the NEXT battery at the same station,
-  // so a run of batteries only needs one badge + one station scan.
-  // The combo is self-contained per commit; nothing leaks between batteries.
   flash('flash'); beep(true); render();
 
   call('scan', {
@@ -270,46 +266,50 @@ function retryFailed() {
   });
 }
 
-/* ---------------- Manual overrides (for a missing card/badge) ---------------- */
+/* ---------------- Manual controls (single-scanner testing) ---------------- */
 
-function manualStation(v) { if (v) takeStation(v); }
-function manualOperator(v) { if (v) takeEmployee(v); }
-function clearCombo() { resetCombo(); render(); }
+// Pick the station a prefix-less scan belongs to.
+function setManualStation(v) { state.manualStation = v; render(); }
+
+// Manually sign an employee into the manual station (badge missing).
+function manualOperator(v) {
+  if (!v) return;
+  var st = state.manualStation;
+  if (!st) { alert('Pick a station first.'); return; }
+  var emp = matchStaff(v);
+  if (emp) { state.stationEmp[st] = emp; render(); }
+}
 
 /* ---------------- Render ---------------- */
 
 function renderContextBar() {
-  var step = !state.pendingEmp ? '1' : !state.pendingStation ? '2' : '3';
-  document.getElementById('contextBar').innerHTML =
-    '<div class="context-pill floor">' + esc(state.hall || CONFIG.FLOOR || 'ALL HALLS') + '</div>' +
-    (state.pendingEmp
-      ? '<div class="context-pill">EMPLOYEE: ' + esc(state.pendingEmp.name) + '</div>'
-      : '<div class="context-pill empty">1. scan badge</div>') +
-    (state.pendingStation
-      ? '<div class="context-pill">STATION: ' + esc(state.pendingStation) + '</div>'
-      : '<div class="context-pill empty">2. scan station</div>');
+  var pills = '<div class="context-pill floor">' + esc(state.hall || CONFIG.FLOOR || 'ALL HALLS') + '</div>';
+  // Show who is signed in at each station that has someone.
+  var any = false;
+  Object.keys(state.stationEmp).forEach(function (st) {
+    var e = state.stationEmp[st];
+    if (e) { any = true; pills += '<div class="context-pill">' + esc(st) + ': ' + esc(e.name) + '</div>'; }
+  });
+  if (!any) pills += '<div class="context-pill empty">no employee signed in yet</div>';
+  document.getElementById('contextBar').innerHTML = pills;
 }
 
 function renderScan() {
   if (!state.staff.length || !state.stations.length) {
     return '<div class="panel"><div class="empty"><div class="big">Nothing set up yet</div>' +
-           'Add employees and stations on the admin page, then print the cards.</div></div>';
+           'Add employees and stations on the admin page, then set each scanner\'s prefix.</div></div>';
   }
 
-  var stOptions = '<option value="">-- pick manually --</option>';
+  var stOptions = '<option value="">-- no prefix: pick station --</option>';
   state.stations.forEach(function (s) {
-    stOptions += '<option value="' + esc(s) + '"' + (state.pendingStation === s ? ' selected' : '') + '>' + esc(s) + '</option>';
+    stOptions += '<option value="' + esc(s) + '"' + (state.manualStation === s ? ' selected' : '') + '>' + esc(s) + '</option>';
   });
-  var opOptions = '<option value="">-- pick manually --</option>';
+  var opOptions = '<option value="">-- sign in an employee --</option>';
   state.staff.forEach(function (s) {
-    opOptions += '<option value="' + esc(s.id) + '"' + (state.pendingEmp && state.pendingEmp.id === s.id ? ' selected' : '') + '>' + esc(s.name) + '</option>';
+    opOptions += '<option value="' + esc(s.id) + '">' + esc(s.name) + '</option>';
   });
 
-  var stepMsg = !state.pendingEmp
-    ? 'Step 1 of 3 - scan the EMPLOYEE badge'
-    : !state.pendingStation
-      ? 'Step 2 of 3 - scan the STATION card'
-      : 'Step 3 of 3 - scan the BATTERY (repeats for each battery here)';
+  var hint = 'Scan a battery. The scanner\'s prefix picks the station; the badge scanned there is the employee.';
 
   var lastScanHtml = '';
   if (state.lastScan) {
@@ -336,22 +336,16 @@ function renderScan() {
     ? '<div style="margin-top:12px;"><button class="btn secondary" onclick="retryFailed()">Retry ' + failed + ' held scan(s)</button></div>'
     : '';
 
-  var comboReady = state.pendingEmp && state.pendingStation;
-  var resetBtn = (state.pendingEmp || state.pendingStation)
-    ? '<button class="btn secondary" style="margin-top:10px;" onclick="clearCombo()">Reset (start over)</button>'
-    : '';
-
   return '<div class="panel">' +
-      '<div class="scan-box' + (comboReady ? ' ready' : '') + '" id="scanBox">' +
-        '<input id="universalScan" type="text" placeholder="' + esc(stepMsg) + '" autocomplete="off" ' +
+      '<div class="scan-box" id="scanBox">' +
+        '<input id="universalScan" type="text" placeholder="Scan badge or battery" autocomplete="off" ' +
         'onkeydown="if(event.key===\'Enter\'){handleUniversalScan(this.value); this.value=\'\';}">' +
-        '<div class="scan-hint">' + esc(stepMsg) + '</div>' +
+        '<div class="scan-hint">' + esc(hint) + '</div>' +
         '<div class="scan-readout">' + (state.lastScan ? 'Last battery: ' + esc(state.lastScan.packId) : 'No scans yet') + '</div>' +
       '</div>' +
-      resetBtn +
       '<div class="row" style="margin-top:12px;">' +
-        '<div class="field"><label>Employee (if badge missing)</label><select onchange="manualOperator(this.value)">' + opOptions + '</select></div>' +
-        '<div class="field"><label>Station (if card missing)</label><select onchange="manualStation(this.value)">' + stOptions + '</select></div>' +
+        '<div class="field"><label>Testing station (only if scanner has no prefix)</label><select onchange="setManualStation(this.value)">' + stOptions + '</select></div>' +
+        '<div class="field"><label>Sign in employee here (badge missing)</label><select onchange="manualOperator(this.value)">' + opOptions + '</select></div>' +
       '</div>' +
       lastScanHtml + retryBar +
     '</div>' +
