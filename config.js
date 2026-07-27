@@ -20,5 +20,5 @@ var CONFIG = {
   ENFORCE_SEQUENCE: false,
 
   // JSONP request timeout (ms).
-  TIMEOUT_MS: 20000
+  TIMEOUT_MS: 45000
 };
