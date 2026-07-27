@@ -323,20 +323,26 @@ function renderScan() {
   // Live board: one card per station in this hall, showing who is signed in
   // and how many batteries they have scanned this session.
   var sessionCount = {};
+  var maxCount = 0;
   state.recentScans.forEach(function (r) {
     var k = r.station + '||' + r.operator;
     sessionCount[k] = (sessionCount[k] || 0) + 1;
+    if (sessionCount[k] > maxCount) maxCount = sessionCount[k];
   });
+
   var boardCards = state.stations.map(function (st) {
     var emp = state.stationEmp[st];
     var count = emp ? (sessionCount[st + '||' + emp.name] || 0) : 0;
     if (emp) {
       var initials = emp.name.trim().split(/\s+/).map(function (w) { return w[0]; }).join('').slice(0, 2).toUpperCase();
+      var pct = maxCount ? Math.round(count / maxCount * 100) : 0;
+      var lead = (count > 0 && count === maxCount) ? '<span class="board-lead">TOP</span>' : '';
       return '<div class="board-card active">' +
-        '<div class="board-station">' + esc(st) + '</div>' +
+        '<div class="board-station">' + esc(st) + lead + '</div>' +
         '<div class="board-who"><span class="board-avatar">' + esc(initials) + '</span>' +
         '<span class="board-emp">' + esc(emp.name) + '</span></div>' +
-        '<div class="board-meta">' + count + ' scanned</div>' +
+        '<div class="board-count">' + count + '<span class="board-count-lbl"> done</span></div>' +
+        '<div class="board-bar"><div class="board-bar-fill" style="width:' + pct + '%"></div></div>' +
       '</div>';
     }
     return '<div class="board-card">' +
@@ -344,7 +350,7 @@ function renderScan() {
       '<div class="board-emp empty">open</div>' +
     '</div>';
   }).join('');
-  var board = '<div class="panel"><div class="panel-title">Who is on each station</div>' +
+  var board = '<div class="panel"><div class="panel-title">Who is on each station &middot; live</div>' +
     '<div class="board-grid">' + boardCards + '</div></div>';
 
   return '<div class="panel scan-panel">' +
