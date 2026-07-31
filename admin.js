@@ -683,14 +683,20 @@ function generateSerials() {
   var qty = parseInt(document.getElementById('labelQty').value, 10);
   var modelEl = document.getElementById('labelModel');
   var model = modelEl ? modelEl.value : '';
+  var cellsEl = document.getElementById('labelCells');
+  var bmsEl = document.getElementById('labelBms');
+  var cells = cellsEl ? cellsEl.value.trim() : '';
+  var bms = bmsEl ? bmsEl.value.trim() : '';
   if (state.models.length && !model) { alert('Pick a model first.'); return; }
+  if (!cells) { alert('Enter the cell type used.'); return; }
+  if (!bms) { alert('Enter the BMS used.'); return; }
   if (!qty || qty < 1) { alert('Enter how many batteries you need labels for.'); return; }
   if (qty > 200) { alert('Maximum 200 at a time.'); return; }
 
   var btn = document.getElementById('genBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'Generating...'; }
 
-  call('newSerials', { qty: qty, model: model }).then(function (res) {
+  call('newSerials', { qty: qty, model: model, cells: cells, bms: bms }).then(function (res) {
     state.labels = res.serials || [];
     state.labelModel = res.model || '';
     renderContentOnly();
@@ -732,8 +738,12 @@ function renderLabels() {
   var head = '<div class="panel"><div class="panel-title">New battery labels</div>' +
     '<p style="color:var(--text-muted);font-size:13.5px;margin-top:-6px;">Each model has its own counter, and every ' +
     'serial is recorded in the BatteryMaster sheet as it is generated, so a number is never issued twice.</p>' +
-    '<div class="row" style="max-width:560px;">' +
+    '<div class="row" style="max-width:720px;">' +
       modelField +
+      '<div class="field"><label>Cells used</label>' +
+      '<input id="labelCells" placeholder="e.g. LiFePO4 32700 6Ah"></div>' +
+      '<div class="field"><label>BMS used</label>' +
+      '<input id="labelBms" placeholder="e.g. 60V 30A Smart BMS"></div>' +
       '<div class="field"><label>How many batteries</label>' +
       '<input id="labelQty" type="number" min="1" max="200" value="10" ' +
       'onkeydown="if(event.key===\'Enter\') generateSerials();"></div>' +
