@@ -1,9 +1,9 @@
 /* Admin page - dashboard, employee output, setup, printable cards.
-   PIN-gated so the floor PC can't reach it by accident. */
+   PIN gate removed - admin opens directly. */
 
 state = {
   tab: 'dashboard',
-  unlocked: false,
+  unlocked: true,
   staff: [], stations: [], logs: [], packs: {},
   viewPacks: [], search: '', expandedPack: null,
   empRange: 'today', expandedEmp: null,
@@ -15,48 +15,6 @@ state = {
 };
 
 function breakGapMs() { return (CONFIG.BREAK_GAP_MINUTES || 30) * 60000; }
-
-/* ---------------- PIN gate ---------------- */
-
-function tryUnlock() {
-  var el = document.getElementById('pinInput');
-  var val = (el && el.value || '').trim();
-  var err = document.getElementById('pinError');
-  err.textContent = 'Checking...';
-  call('checkPin', { pin: val }).then(function (res) {
-    if (!res.valid) {
-      err.textContent = 'Wrong PIN. Try again.';
-      el.value = ''; el.focus();
-      return;
-    }
-    state.unlocked = true;
-    try { sessionStorage.setItem('plt_admin', '1'); } catch (e) {}
-    render();
-    loadAll();
-  }, function (e) {
-    err.textContent = 'Could not reach the Sheet: ' + e.message;
-  });
-}
-
-function lockAdmin() {
-  state.unlocked = false;
-  try { sessionStorage.removeItem('plt_admin'); } catch (e) {}
-  render();
-}
-
-function renderPinGate() {
-  return '<div class="panel pin-panel">' +
-    '<div class="panel-title">Admin access</div>' +
-    '<p style="color:var(--text-muted);font-size:13.5px;margin-top:-6px;">Enter the admin PIN to view production and employee data.</p>' +
-    '<div class="row" style="max-width:280px;">' +
-      '<div class="field"><label>PIN</label>' +
-      '<input id="pinInput" type="password" inputmode="numeric" autocomplete="off" ' +
-      'onkeydown="if(event.key===\'Enter\') tryUnlock();"></div>' +
-    '</div>' +
-    '<div id="pinError" style="color:var(--danger);font-size:12.5px;min-height:18px;margin-top:8px;"></div>' +
-    '<button class="btn" onclick="tryUnlock()">Unlock</button>' +
-  '</div>';
-}
 
 /* ---------------- Load ---------------- */
 
@@ -697,6 +655,14 @@ function generateSerials() {
   if (btn) { btn.disabled = true; btn.textContent = 'Generating...'; }
 
   call('newSerials', { qty: qty, model: model, cells: cells, bms: bms }).then(function (res) {
+    state.labels = res.serials || [];
+    state.labelModel = res.model || '';
+    renderContentOnly();
+  }, function (err) {
+    alert('Could not generate serials: ' + err.message);
+    if (btn) { btn.disabled = false; btn.textContent = 'Generate serials'; }
+  });
+}
 
 function loadReprint() {
   var raw = document.getElementById('reprintBox').value || '';
@@ -729,7 +695,8 @@ function renderLabels() {
 
   var head = '<div class="panel"><div class="panel-title">New battery labels</div>' +
     '<p style="color:var(--text-muted);font-size:13.5px;margin-top:-6px;">Each model has its own counter, and every ' +
-    'serial is recorded in the BatteryMaster sheet as it is generated, so a number is never issued twice.</p>' +
+    'serial is recorded in the Sheet as it is generated, so a number is never issued twice. ' +
+    'The cell type and BMS you enter are saved against every serial in this batch.</p>' +
     '<div class="row" style="max-width:720px;">' +
       modelField +
       '<div class="field"><label>Cells used</label>' +
@@ -822,8 +789,7 @@ function renderTabs() {
 
 function renderContextBar() {
   var el = document.getElementById('contextBar');
-  el.innerHTML = '<div class="context-pill floor">' + esc(CONFIG.FLOOR || 'NO FLOOR') + '</div>' +
-    (state.unlocked ? '<button class="range-btn" onclick="lockAdmin()">Lock</button>' : '');
+  el.innerHTML = '<div class="context-pill floor">' + esc(CONFIG.FLOOR || 'NO FLOOR') + '</div>';
 }
 
 function renderContentOnly() {
@@ -841,12 +807,6 @@ function render() {
   updateConn();
   var c = document.getElementById('content');
 
-  if (!state.unlocked) {
-    c.innerHTML = renderPinGate();
-    var pin = document.getElementById('pinInput');
-    if (pin) pin.focus();
-    return;
-  }
   if (state.loading) { c.innerHTML = '<div class="empty">Loading from the Sheet...</div>'; return; }
   if (state.statusMsg && !state.stations.length) {
     c.innerHTML = '<div class="panel"><div class="empty"><div class="big">Could not reach the Sheet</div>' +
@@ -859,18 +819,13 @@ function render() {
 
 /* ---------------- Boot ---------------- */
 
-try {
-  if (sessionStorage.getItem('plt_admin') === '1') state.unlocked = true;
-} catch (e) {}
-
 render();
 
-// Settings decide whether a PIN is needed at all, so fetch them first.
+// No PIN gate - just fetch settings and load.
 call('settings', {}).then(function (res) {
   applySettings(res.settings);
-  if (!CONFIG.PIN_REQUIRED) state.unlocked = true;
   render();
-  if (state.unlocked) loadAll();
+  loadAll();
   if (CONFIG.POLL_MS) setInterval(refreshAll, Math.max(CONFIG.POLL_MS, 20000));
 }, function (err) {
   state.statusMsg = err.message;
