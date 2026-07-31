@@ -4,7 +4,7 @@
 var CONFIG = {
 
   // Apps Script Web App /exec URL (Deploy > New deployment > Web app)
-  API_URL: 'https://script.google.com/macros/s/AKfycbwWxiUqEi5OGL6IKvIFOzDgjN6I9PCKD7r8VCi9cTiVKifX1tKC-m68LH4MVystTJfWmA/exec',
+  API_URL: 'https://script.google.com/macros/s/AKfycbwIT6i98bniPpR6JMYTU0XbAd3deni_3euwJ9-MWq8OX_598elABdcW7DPwn_LrYrdlrw/exec',
 
   // Which floor/unit this PC belongs to. Goes into every log row so all
   // floors can share one Sheet but each PC only sees its own work.
