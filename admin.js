@@ -697,14 +697,6 @@ function generateSerials() {
   if (btn) { btn.disabled = true; btn.textContent = 'Generating...'; }
 
   call('newSerials', { qty: qty, model: model, cells: cells, bms: bms }).then(function (res) {
-    state.labels = res.serials || [];
-    state.labelModel = res.model || '';
-    renderContentOnly();
-  }, function (err) {
-    alert('Could not generate serials: ' + err.message);
-    if (btn) { btn.disabled = false; btn.textContent = 'Generate serials'; }
-  });
-}
 
 function loadReprint() {
   var raw = document.getElementById('reprintBox').value || '';
