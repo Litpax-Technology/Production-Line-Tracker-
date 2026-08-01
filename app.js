@@ -64,6 +64,8 @@ function refreshLists() {
     state.stationRows = rows.filter(function (r) { return inHall(r.hall); });
     state.stations = state.stationRows.map(function (r) { return r.name; });
     state.staff = (res.staff || []).filter(function (s) { return inHall(s.hall); });
+    state.plan = res.plan || [];
+    render();
   }, function () { /* the dot already shows the state */ });
 }
 
@@ -354,6 +356,20 @@ function renderScan() {
   var board = '<div class="panel"><div class="panel-title">Who is on each station &middot; live</div>' +
     '<div class="board-grid">' + boardCards + '</div></div>';
 
+  // Today's production plan (from the ERP slip). Same on every hall.
+  var plan = state.plan || [];
+  var planTotal = plan.reduce(function (a, r) { return a + (r.planned || 0); }, 0);
+  var planRows = plan.map(function (r) {
+    return '<tr><td>' + esc(r.model || r.type || '-') + '</td>' +
+           '<td class="mono">' + esc(r.order) + '</td>' +
+           '<td class="mono">' + r.planned + '</td></tr>';
+  }).join('');
+  var planPanel = '<div class="panel"><div class="panel-title">Today\'s production plan &middot; ' + planTotal + ' planned</div>' +
+    (plan.length
+      ? '<div class="table-wrap"><table><thead><tr><th>Model</th><th>Order</th><th>Planned</th></tr></thead><tbody>' + planRows + '</tbody></table></div>'
+      : '<div class="empty">No plan for today yet.</div>') +
+    '</div>';
+
   return '<div class="panel scan-panel">' +
       '<div class="scan-box" id="scanBox">' +
         '<input id="universalScan" type="text" placeholder="Scan badge or battery" autocomplete="off" ' +
@@ -363,6 +379,7 @@ function renderScan() {
       '</div>' +
       lastScanHtml + retryBar +
     '</div>' +
+    planPanel +
     board +
     '<div class="panel"><div class="panel-title">Scanned this session</div>' +
       (state.recentScans.length
