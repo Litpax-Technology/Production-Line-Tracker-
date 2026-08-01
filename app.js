@@ -34,6 +34,7 @@ function loadAll() {
     state.stationRows = rows.filter(function (r) { return inHall(r.hall); });
     state.stations = state.stationRows.map(function (r) { return r.name; });
     state.staff = (res.staff || []).filter(function (s) { return inHall(s.hall); });
+    state.plan = res.plan || [];
     state.loading = false;
     render();
     startPolling();
