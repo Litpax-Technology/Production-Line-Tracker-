@@ -63,6 +63,18 @@ function togglePack(i) {
   renderContentOnly();
 }
 
+function packState(p) {
+  var h = p.history;
+  var lastResult = String(h[h.length - 1].result || '').toLowerCase();
+  if (lastResult === 'fail')   return { key: 'fail',     label: 'Fail',        cls: 'fail' };
+  if (lastResult === 'rework') return { key: 'rework',   label: 'Rework',      cls: 'pending' };
+  var completeStage = (CONFIG.SETTINGS && CONFIG.SETTINGS.CompleteStage) ||
+                      (state.stations.length ? state.stations[state.stations.length - 1] : '');
+  var done = completeStage && h.some(function (x) { return x.station === completeStage; });
+  if (done) return { key: 'complete', label: 'Complete', cls: 'pass' };
+  return { key: 'progress', label: 'In progress', cls: 'pending' };
+}
+
 function renderDashboard() {
   var list = Object.keys(state.packs).map(function (k) { return state.packs[k]; });
   var q = state.search.toLowerCase();
@@ -71,23 +83,25 @@ function renderDashboard() {
                           return b.history[b.history.length - 1].timestamp - a.history[a.history.length - 1].timestamp;
                         });
 
-  var n = function (st) { return list.filter(function (p) { return p.status === st; }).length; };
+ var cnt = { progress: 0, complete: 0, fail: 0, rework: 0 };
+  list.forEach(function (p) { cnt[packState(p).key]++; });
   var stats = '<div class="stat-grid">' +
     '<div class="stat-card"><div class="num">' + list.length + '</div><div class="lbl">Batteries tracked</div></div>' +
-    '<div class="stat-card"><div class="num">' + n('pass') + '</div><div class="lbl">Passed</div></div>' +
-    '<div class="stat-card"><div class="num">' + n('fail') + '</div><div class="lbl">Failed</div></div>' +
-    '<div class="stat-card"><div class="num">' + n('rework') + '</div><div class="lbl">Rework</div></div>' +
+    '<div class="stat-card"><div class="num">' + cnt.progress + '</div><div class="lbl">In progress</div></div>' +
+    '<div class="stat-card"><div class="num">' + cnt.complete + '</div><div class="lbl">Complete</div></div>' +
+    '<div class="stat-card"><div class="num">' + (cnt.fail + cnt.rework) + '</div><div class="lbl">Fail / Rework</div></div>' +
     '</div>';
 
   var rows = '';
   state.viewPacks.forEach(function (p, i) {
-    var last = p.history[p.history.length - 1];
+     var last = p.history[p.history.length - 1];
+    var ps = packState(p);
     rows += '<tr style="cursor:pointer" onclick="togglePack(' + i + ')">' +
       '<td class="mono">' + esc(p.id) + '</td>' +
       '<td>' + esc(p.currentStage) + '</td>' +
       '<td>' + esc(last.operatorName) + '</td>' +
       '<td class="mono">' + fmtTime(last.timestamp) + '</td>' +
-      '<td><span class="badge ' + badgeClassFor(p.status) + '">' + esc(p.status) + '</span></td></tr>';
+      '<td><span class="badge ' + ps.cls + '">' + ps.label + '</span></td></tr>';
 
     if (state.expandedPack === p.id) {
       var items = p.history.map(function (h, idx) {
