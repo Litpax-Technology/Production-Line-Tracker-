@@ -635,7 +635,15 @@ function ensureQR(cb) {
   document.head.appendChild(a);
 }
 
-function setLabelModel(v) { state.labelModel = v; }
+function setLabelModel(v) {
+  state.labelModel = v;
+  var m = null;
+  state.models.forEach(function (x) { if (x.code === v) m = x; });
+  var cellsEl = document.getElementById('labelCells');
+  var bmsEl = document.getElementById('labelBms');
+  if (cellsEl) cellsEl.value = (m && m.cells) ? m.cells : '';
+  if (bmsEl)  bmsEl.value  = (m && m.bms)  ? m.bms  : '';
+}
 
 function generateSerials() {
   var qty = parseInt(document.getElementById('labelQty').value, 10);
@@ -678,6 +686,8 @@ function clearLabels() { state.labels = []; renderContentOnly(); }
 function renderLabels() {
   var w = CONFIG.LABEL_WIDTH_MM || 50;
   var h = CONFIG.LABEL_HEIGHT_MM || 25;
+    var selModel = null;
+  state.models.forEach(function (m) { if (m.code === state.labelModel) selModel = m; });
 
   var modelField = '';
   if (state.models.length) {
@@ -700,9 +710,11 @@ function renderLabels() {
     '<div class="row" style="max-width:720px;">' +
       modelField +
       '<div class="field"><label>Cells used</label>' +
-      '<input id="labelCells" placeholder="e.g. LiFePO4 32700 6Ah"></div>' +
+      '<input id="labelCells" placeholder="e.g. LiFePO4 32700 6Ah" value="' +
+      esc(selModel && selModel.cells ? selModel.cells : '') + '"></div>' +
       '<div class="field"><label>BMS used</label>' +
-      '<input id="labelBms" placeholder="e.g. 60V 30A Smart BMS"></div>' +
+      '<input id="labelBms" placeholder="e.g. 60V 30A Smart BMS" value="' +
+      esc(selModel && selModel.bms ? selModel.bms : '') + '"></div>' +
       '<div class="field"><label>How many batteries</label>' +
       '<input id="labelQty" type="number" min="1" max="200" value="10" ' +
       'onkeydown="if(event.key===\'Enter\') generateSerials();"></div>' +
