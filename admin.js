@@ -105,12 +105,17 @@ function renderDashboard() {
 
     if (state.expandedPack === p.id) {
       var items = p.history.map(function (h, idx) {
+        var res = String(h.result || '').toLowerCase();
+        var badgeCls, badgeTxt;
+        if (res === 'fail')        { badgeCls = 'fail';    badgeTxt = 'Fail'; }
+        else if (res === 'rework') { badgeCls = 'pending'; badgeTxt = 'Rework'; }
+        else                       { badgeCls = 'pass';    badgeTxt = 'Done'; }
         return '<div class="history-item">' +
           '<span class="step-num">' + (idx + 1) + '</span>' +
           '<span style="min-width:150px;">' + esc(h.station) + '</span>' +
           '<span class="mono">' + esc(h.operatorName) + '</span>' +
           '<span class="mono">' + fmtTime(h.timestamp) + '</span>' +
-          '<span class="badge ' + badgeClassFor(h.result) + '">' + esc(h.result) + '</span></div>';
+          '<span class="badge ' + badgeCls + '">' + badgeTxt + '</span></div>';
       }).join('');
       rows += '<tr><td colspan="5"><div class="history-detail">' + items + '</div></td></tr>';
     }
