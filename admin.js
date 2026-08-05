@@ -324,11 +324,16 @@ function addModel() {
   var nameEl = document.getElementById('modelName');
   var codeEl = document.getElementById('modelCode');
   var cntEl = document.getElementById('modelCounter');
+  var cellsEl = document.getElementById('modelCells');
+  var bmsEl = document.getElementById('modelBms');
   var name = nameEl.value.trim(), code = codeEl.value.trim().toUpperCase();
+  var cells = cellsEl ? cellsEl.value.trim() : '';
+  var bms = bmsEl ? bmsEl.value.trim() : '';
   if (!name || !code) { alert('Model name and short code are both required.'); return; }
-  call('addModel', { name: name, code: code, counter: cntEl.value || 0 }).then(function () {
-    state.models.push({ name: name, code: code, counter: parseInt(cntEl.value, 10) || 0 });
+  call('addModel', { name: name, code: code, counter: cntEl.value || 0, cells: cells, bms: bms }).then(function () {
+    state.models.push({ name: name, code: code, counter: parseInt(cntEl.value, 10) || 0, cells: cells, bms: bms });
     nameEl.value = ''; codeEl.value = ''; cntEl.value = '0';
+    if (cellsEl) cellsEl.value = ''; if (bmsEl) bmsEl.value = '';
     renderContentOnly();
   }, function (err) { alert(err.message); });
 }
@@ -338,6 +343,19 @@ function removeModelAt(i) {
   if (!m || !confirm('Remove model "' + m.name + '"? Serials already issued are kept.')) return;
   call('delModel', { code: m.code }).then(function () {
     state.models.splice(i, 1); renderContentOnly();
+  }, function (err) { alert(err.message); });
+}
+
+function saveModelSpec(i) {
+  var m = state.models[i];
+  if (!m) return;
+  var cells = (document.getElementById('mspec-cells-' + i) || {}).value || '';
+  var bms = (document.getElementById('mspec-bms-' + i) || {}).value || '';
+  cells = cells.trim(); bms = bms.trim();
+  call('setModelSpec', { code: m.code, cells: cells, bms: bms }).then(function () {
+    m.cells = cells; m.bms = bms;
+    var btn = document.getElementById('mspec-btn-' + i);
+    if (btn) { btn.textContent = 'Saved'; setTimeout(function () { if (btn) btn.textContent = 'Save'; }, 1500); }
   }, function (err) { alert(err.message); });
 }
 
@@ -468,9 +486,15 @@ function renderSetup() {
     settingRows + '</tbody></table></div></div>';
 
   var modelRows = state.models.map(function (m, i) {
-    return '<div class="list-row"><div><div class="name">' + esc(m.name) + '</div>' +
+    return '<div class="list-row" style="flex-wrap:wrap;gap:8px;">' +
+      '<div style="flex:1 1 180px;"><div class="name">' + esc(m.name) + '</div>' +
       '<div class="sub">' + esc(m.code) + ' &middot; last number: ' + m.counter + '</div></div>' +
-      '<button class="icon-btn danger" onclick="removeModelAt(' + i + ')">X</button></div>';
+      '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">' +
+        '<input id="mspec-cells-' + i + '" class="search-input" style="width:180px;" placeholder="Cells" value="' + esc(m.cells || '') + '">' +
+        '<input id="mspec-bms-' + i + '" class="search-input" style="width:170px;" placeholder="BMS" value="' + esc(m.bms || '') + '">' +
+        '<button id="mspec-btn-' + i + '" class="icon-btn" onclick="saveModelSpec(' + i + ')">Save</button>' +
+        '<button class="icon-btn danger" onclick="removeModelAt(' + i + ')">X</button>' +
+      '</div></div>';
   }).join('');
 
   var modelsPanel = '<div class="panel"><div class="panel-title">Battery models</div>' +
@@ -479,6 +503,8 @@ function renderSetup() {
       '<div class="field"><label>Model name</label><input id="modelName" placeholder="2 Wheeler 60V 30Ah"></div>' +
       '<div class="field"><label>Short code (goes into the serial)</label><input id="modelCode" placeholder="2W60"></div>' +
       '<div class="field"><label>Start counter at</label><input id="modelCounter" type="number" min="0" value="0"></div>' +
+      '<div class="field"><label>Cells (optional)</label><input id="modelCells" placeholder="e.g. LiFePO4 32700 6Ah"></div>' +
+      '<div class="field"><label>BMS (optional)</label><input id="modelBms" placeholder="e.g. 60V 30A Smart BMS"></div>' +
     '</div>' +
     '<div style="margin-top:10px;"><button class="btn" onclick="addModel()">Add model</button></div>' +
     '<p style="font-size:12px;color:var(--text-muted);margin:10px 0 0;">Serial pattern: ' +
