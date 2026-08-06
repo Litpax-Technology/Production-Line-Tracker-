@@ -8,7 +8,7 @@ state = {
   viewPacks: [], search: '', expandedPack: null,
   empRange: 'today', expandedEmp: null,
   sel: { station: {}, staff: {} },   // false = unchecked; missing = checked
-  labels: [], labelModel: '',        // serials currently laid out for printing
+  labels: [], labelModel: '', labelHall: '',        // serials currently laid out for printing
   models: [], halls: [], stationRows: [],
   empFrom: '', empTo: '',            // custom date range on the Employees tab
   loading: true, connected: true, pending: 0, statusMsg: ''
@@ -680,6 +680,12 @@ function ensureQR(cb) {
   document.head.appendChild(a);
 }
 
+function setLabelHall(v) {
+  state.labelHall = v;
+  state.labelModel = '';   // hall badla to model reset
+  renderContentOnly();
+}
+
 function setLabelModel(v) {
   state.labelModel = v;
   var m = null;
@@ -731,16 +737,35 @@ function clearLabels() { state.labels = []; renderContentOnly(); }
 function renderLabels() {
   var w = CONFIG.LABEL_WIDTH_MM || 50;
   var h = CONFIG.LABEL_HEIGHT_MM || 25;
-    var selModel = null;
+  var selModel = null;
   state.models.forEach(function (m) { if (m.code === state.labelModel) selModel = m; });
+
+  // Halls that actually have models
+  var modelHalls = [];
+  state.models.forEach(function (m) {
+    if (m.hall && modelHalls.indexOf(m.hall) < 0) modelHalls.push(m.hall);
+  });
+
+  var hallField = '';
+  if (modelHalls.length) {
+    var hopts = '<option value="">-- all halls --</option>' + modelHalls.map(function (hn) {
+      return '<option value="' + esc(hn) + '"' + (state.labelHall === hn ? ' selected' : '') + '>' + esc(hn) + '</option>';
+    }).join('');
+    hallField = '<div class="field"><label>Hall</label><select id="labelHall" onchange="setLabelHall(this.value)">' +
+                hopts + '</select></div>';
+  }
 
   var modelField = '';
   if (state.models.length) {
-    var opts = '<option value="">-- pick a model --</option>' + state.models.map(function (m) {
+    var shown = state.models.filter(function (m) {
+      return !state.labelHall || m.hall === state.labelHall;
+    });
+    var opts = '<option value="">-- pick a model --</option>' + shown.map(function (m) {
       return '<option value="' + esc(m.code) + '"' + (state.labelModel === m.code ? ' selected' : '') + '>' +
              esc(m.name) + ' (' + esc(m.code) + ')</option>';
     }).join('');
-    modelField = '<div class="field"><label>Model</label><select id="labelModel" onchange="setLabelModel(this.value)">' +
+    modelField = hallField +
+                 '<div class="field"><label>Model</label><select id="labelModel" onchange="setLabelModel(this.value)">' +
                  opts + '</select></div>';
   } else {
     modelField = '<div class="field"><label>Model</label>' +
