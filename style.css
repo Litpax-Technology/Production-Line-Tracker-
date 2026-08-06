@@ -251,3 +251,77 @@ td .sub{font-size:11.5px;color:var(--text-muted);font-family:var(--mono);margin-
 /* scan panel sits first and gets a touch more presence */
 .scan-panel{border-color:var(--border-strong);}
 .app-scan .board-count{font-size:30px;}
+
+
+
+/* ============================================================
+   ADMIN POLISH — sirf admin (body:has(.tabs)). Scan page untouched.
+   ============================================================ */
+body:has(.tabs){
+  background:
+    radial-gradient(1100px 380px at 100% -10%, rgba(99,91,255,.07), transparent 60%),
+    radial-gradient(900px 400px at -10% 110%, rgba(99,91,255,.05), transparent 60%),
+    var(--bg);
+}
+body:has(.tabs) .app{max-width:1080px;}
+
+/* Tab bar chipak jaye upar — lambe Setup pe nav hamesha reach me */
+body:has(.tabs) .tabs{
+  position:sticky; top:12px; z-index:30;
+  background:rgba(255,255,255,.82);
+  backdrop-filter:saturate(180%) blur(12px);
+  -webkit-backdrop-filter:saturate(180%) blur(12px);
+  border-color:var(--border-strong);
+  box-shadow:0 8px 24px rgba(16,24,40,.10);
+}
+
+/* Brand thoda richer */
+body:has(.tabs) .brand-mark{border-radius:12px;background:linear-gradient(135deg,var(--accent),#8b84ff);}
+body:has(.tabs) .brand h1{font-size:21px;}
+
+/* Panels: halka gradient, hover pe uthein, title ke aage accent chip */
+body:has(.tabs) .panel{
+  border-radius:16px;
+  background:linear-gradient(180deg,#ffffff,#fcfcfe);
+  transition:box-shadow .16s, transform .16s, border-color .16s;
+}
+body:has(.tabs) .panel:hover{box-shadow:0 10px 30px rgba(16,24,40,.09);border-color:var(--border-strong);}
+body:has(.tabs) .panel-title{display:flex;align-items:center;gap:9px;font-size:11.5px;color:var(--text-muted);}
+body:has(.tabs) .panel-title::before{
+  content:"";width:14px;height:14px;border-radius:5px;flex:0 0 auto;
+  background:linear-gradient(135deg,var(--accent),#8b84ff);
+  box-shadow:0 2px 7px rgba(99,91,255,.45);
+}
+
+/* Stat cards: gradient, bada number, hover lift */
+body:has(.tabs) .stat-grid{gap:14px;}
+body:has(.tabs) .stat-card{
+  border-radius:16px;border-top:none;overflow:hidden;position:relative;
+  background:linear-gradient(160deg,#ffffff,#f5f5ff);
+  transition:transform .16s, box-shadow .16s;
+}
+body:has(.tabs) .stat-card::before{content:"";position:absolute;top:0;bottom:0;left:0;width:4px;background:linear-gradient(180deg,var(--accent),#8b84ff);}
+body:has(.tabs) .stat-card:hover{transform:translateY(-2px);box-shadow:0 12px 26px rgba(16,24,40,.10);}
+body:has(.tabs) .stat-card .num{font-size:32px;}
+body:has(.tabs) .stat-card .lbl{font-size:12px;color:var(--text-muted);}
+
+/* "Add" form rows ek soft well me — list se alag dikhein */
+body:has(.tabs) .panel > .row{
+  background:var(--surface-2);
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:14px;
+}
+body:has(.tabs) #staffHallNewWrap,
+body:has(.tabs) #stationHallNewWrap{background:transparent;border:none;padding:0;}
+
+/* List rows aur table thoda crisp */
+body:has(.tabs) .list-row{border-radius:11px;}
+body:has(.tabs) .table-wrap{border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--surface);}
+body:has(.tabs) .table-wrap table{font-size:13.5px;}
+body:has(.tabs) th{background:var(--surface-2);}
+
+/* Range buttons (Employees tab) pill-style */
+body:has(.tabs) .range-bar{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:5px;width:fit-content;box-shadow:var(--shadow);}
+body:has(.tabs) .range-btn{border:none;background:transparent;box-shadow:none;}
+body:has(.tabs) .range-btn.active{box-shadow:0 2px 8px rgba(99,91,255,.28);}
