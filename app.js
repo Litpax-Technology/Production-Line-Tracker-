@@ -119,10 +119,17 @@ function matchStaff(idRaw) {
   return m;
 }
 
-function matchStation(nameRaw) {
-  var name = String(nameRaw).trim().toLowerCase();
+function matchStation(raw) {
+  var key = String(raw).trim().toLowerCase();
   var m = null;
-  state.stations.forEach(function (s) { if (s.toLowerCase() === name) m = s; });
+  // Pehle CODE se match (scanner prefix), station ka NAME return karo.
+  state.stationRows.forEach(function (r) {
+    if (r.code && r.code.toLowerCase() === key) m = r.name;
+  });
+  // Transition ke liye: purana naam-prefix bhi chale.
+  if (!m) state.stationRows.forEach(function (r) {
+    if (r.name.toLowerCase() === key) m = r.name;
+  });
   return m;
 }
 
