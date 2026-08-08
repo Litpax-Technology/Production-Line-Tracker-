@@ -409,41 +409,47 @@ function removeStaffAt(i) {
 
 function addStation() {
   var el = document.getElementById('stationName');
+  var codeEl = document.getElementById('stationCode');
   var name = el.value.trim();
+  var code = codeEl ? codeEl.value.trim().toUpperCase() : '';
   var hall = hallFromField('stationHall', 'stationHallNew');
   if (!name) return;
+  if (!code) { alert('Enter a short Code (scanner prefix, e.g. SPOT2W).'); return; }
   if (!hall) { alert('Pick or type the hall for this station.'); return; }
-  call('addStation', { name: name, hall: hall }).then(function () {
+  call('addStation', { name: name, hall: hall, code: code }).then(function () {
     state.stations.push(name);
-    state.stationRows.push({ name: name, hall: hall });
+    state.stationRows.push({ name: name, hall: hall, code: code });
     if (state.halls.indexOf(hall) < 0) state.halls.push(hall);
-    el.value = ''; renderContentOnly();
-  }, function (err) { alert(err.message); });
-}
-
-function removeStationAt(i) {
-  var s = state.stations[i];
-  if (!s || !confirm('Remove station "' + s + '"? Past scan history is kept.')) return;
-  call('delStation', { name: s }).then(function () {
-    state.stations.splice(i, 1);
-    state.stationRows = state.stationRows.filter(function (r) { return r.name !== s; });
+    el.value = ''; if (codeEl) codeEl.value = '';
     renderContentOnly();
   }, function (err) { alert(err.message); });
 }
 
-function changeStationHall(name, hall) {
-  call('setStationHall', { name: name, hall: hall }).then(function () {
-    state.stationRows.forEach(function (r) { if (r.name === name) r.hall = hall; });
+function removeStationAt(i) {
+  var s = state.stationRows[i];
+  if (!s || !confirm('Remove station "' + s.name + '"? Past scan history is kept.')) return;
+  call('delStation', { code: s.code, name: s.name }).then(function () {
+    state.stationRows.splice(i, 1);
+    state.stations = state.stationRows.map(function (r) { return r.name; });
+    renderContentOnly();
+  }, function (err) { alert(err.message); });
+}
+
+function changeStationHall(code, hall) {
+  call('setStationHall', { code: code, hall: hall }).then(function () {
+    state.stationRows.forEach(function (r) { if (r.code === code) r.hall = hall; });
     if (hall && state.halls.indexOf(hall) < 0) { state.halls.push(hall); renderContentOnly(); }
   }, function (err) { alert(err.message); });
 }
 
 function moveStation(i, dir) {
   var j = i + dir;
-  if (j < 0 || j >= state.stations.length) return;
-  var tmp = state.stations[i]; state.stations[i] = state.stations[j]; state.stations[j] = tmp;
+  if (j < 0 || j >= state.stationRows.length) return;
+  var tmp = state.stationRows[i]; state.stationRows[i] = state.stationRows[j]; state.stationRows[j] = tmp;
+  state.stations = state.stationRows.map(function (r) { return r.name; });
   renderContentOnly();
-  call('reorderStations', { stations: JSON.stringify(state.stations) }).then(null, function (err) {
+  var codes = state.stationRows.map(function (r) { return r.code || r.name; });
+  call('reorderStations', { stations: JSON.stringify(codes) }).then(null, function (err) {
     alert('Order not saved: ' + err.message); loadAll();
   });
 }
@@ -456,17 +462,18 @@ function renderSetup() {
            '<button class="icon-btn danger" onclick="removeStaffAt(' + i + ')">X</button></div>';
   }).join('');
 
-  var stationRows = state.stations.map(function (s, i) {
-    var row = null;
-    state.stationRows.forEach(function (r) { if (r.name === s) row = r; });
-    var curHall = row ? row.hall : '';
-    var hallSel = '<select class="hall-inline" onchange="changeStationHall(\'' + esc(s).replace(/'/g, '') + '\', this.value)">' +
+var stationRows = state.stationRows.map(function (r, i) {
+    var curHall = r.hall || '';
+    var codeStr = String(r.code || '').replace(/'/g, '');
+    var hallSel = '<select class="hall-inline" onchange="changeStationHall(\'' + codeStr + '\', this.value)">' +
       '<option value="">no hall</option>' +
       state.halls.map(function (h) {
         return '<option value="' + esc(h) + '"' + (curHall === h ? ' selected' : '') + '>' + esc(h) + '</option>';
       }).join('') + '</select>';
     return '<div class="list-row"><div><span class="mono" style="color:var(--accent)">' + (i + 1) + '</span> &nbsp; ' +
-      '<span class="name">' + esc(s) + '</span></div><div style="display:flex;gap:6px;align-items:center;">' +
+      '<span class="name">' + esc(r.name) + '</span> ' +
+      (r.code ? '<span class="hall-tag">' + esc(r.code) + '</span>' : '<span class="hall-tag warn">no code</span>') +
+      '</div><div style="display:flex;gap:6px;align-items:center;">' +
       hallSel +
       '<button class="icon-btn" onclick="moveStation(' + i + ',-1)">Up</button>' +
       '<button class="icon-btn" onclick="moveStation(' + i + ',1)">Dn</button>' +
@@ -527,12 +534,13 @@ function renderSetup() {
     '<div class="panel"><div class="panel-title">Stations (order = line sequence, grouped by hall)</div>' +
       (stationRows || '<div class="empty">No stations added yet.</div>') +
       '<div class="row" style="margin-top:12px;">' +
-        '<div class="field"><label>New station name</label><input id="stationName" placeholder="Spot Welding"></div>' +
+        '<div class="field"><label>New station name</label><input id="stationName" placeholder="Spot"></div>' +
+        '<div class="field"><label>Code (scanner prefix)</label><input id="stationCode" placeholder="SPOT2W"></div>' +
         '<div class="field"><label>Hall</label><select id="stationHall" onchange="onHallSelect(\'stationHall\',\'stationHallNewWrap\')">' + hallOptions('', true) + '</select></div>' +
       '</div>' +
       '<div class="row" id="stationHallNewWrap" style="display:none;margin-top:8px;"><div class="field"><label>New hall name</label><input id="stationHallNew" placeholder="Prismatic"></div></div>' +
       '<div style="margin-top:10px;"><button class="btn" onclick="addStation()">Add station</button></div>' +
-      '<p style="font-size:12px;color:var(--text-muted);margin:10px 0 0;">Each station belongs to one hall. Change a station\'s hall from the dropdown next to it above.</p>' +
+      '<p style="font-size:12px;color:var(--text-muted);margin:10px 0 0;">Har station ka ek unique Code hota hai jo scanner prefix ki tarah bhejta hai. Station naam alag-alag halls mein same ho sakte hain, Code nahi.</p>' +
     '</div>';
 }
 
