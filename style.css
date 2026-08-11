@@ -245,8 +245,10 @@ td .sub{font-size:11.5px;color:var(--text-muted);font-family:var(--mono);margin-
   .battery-label canvas,
   .battery-label img,
   .battery-label svg{
-    max-height:19mm !important;         /* QR thoda chhota */
+    max-height:16mm !important;         /* QR thoda chhota */
     width:auto !important;
+     margin-top:-1.5mm !important;  /* upar shift (negative = upar) */
+    margin-left:2mm !important;    /* right shift (positive = right) */
   }
   @page{margin:0;size:101.6mm 25.4mm;}
 }
