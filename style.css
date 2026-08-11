@@ -237,10 +237,16 @@ td .sub{font-size:11.5px;color:var(--text-muted);font-family:var(--mono);margin-
     margin:0 !important;
     border:none !important;
     border-radius:0 !important;
-    padding:1.5mm !important;
+    padding:2.5mm !important;          /* content edge se door */
     box-sizing:border-box !important;
     page-break-inside:avoid;
     break-inside:avoid;
+  }
+  .battery-label canvas,
+  .battery-label img,
+  .battery-label svg{
+    max-height:19mm !important;         /* QR thoda chhota */
+    width:auto !important;
   }
   @page{margin:0;size:101.6mm 25.4mm;}
 /* ---------- Live "who is on each station" board (scan page) ---------- */
