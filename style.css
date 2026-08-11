@@ -225,9 +225,18 @@ td .sub{font-size:11.5px;color:var(--text-muted);font-family:var(--mono);margin-
   .print-card.unselected{display:none !important;}
   .card-grid{grid-template-columns:repeat(2,1fr);}
   .print-card{border:1px solid #d0d5dd;page-break-inside:avoid;box-shadow:none;}
-  .label-sheet{gap:2mm;}
-  .battery-label{border:1px dotted #999;}
-  @page{margin:6mm;}
+  .label-sheet{display:block !important;gap:0 !important;margin:0 !important;}
+  .battery-label{
+    width:50.8mm !important;
+    height:25.4mm !important;
+    margin:0 auto !important;
+    border:none !important;
+    border-radius:0 !important;
+    padding:1.5mm !important;
+    page-break-after:always;
+    break-after:page;
+  }
+  @page{margin:0;size:50.8mm 25.4mm;}
 }
 
 /* ---------- Live "who is on each station" board (scan page) ---------- */
