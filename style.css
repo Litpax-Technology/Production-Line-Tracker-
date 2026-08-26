@@ -216,10 +216,13 @@ td .sub{font-size:11.5px;color:var(--text-muted);font-family:var(--mono);margin-
 @media (prefers-reduced-motion:reduce){ *{animation:none !important;transition:none !important;} }
 
 @media print{
-  body *{visibility:hidden;}
-  #printArea, #printArea *, #labelArea, #labelArea *{visibility:visible;}
-  #printArea, #labelArea{position:absolute;top:0;left:0;width:100%;}
-  #printArea .panel{border:none;box-shadow:none;padding:0;background:#fff;}
+html,body{margin:0 !important;padding:0 !important;}
+  .app,.app-scan{max-width:none !important;margin:0 !important;padding:0 !important;}
+  body *:not(#printArea):not(#printArea *):not(#labelArea):not(#labelArea *):not(:has(#printArea)):not(:has(#labelArea)){
+    display:none !important;
+  }
+  #printArea,#labelArea{position:static;width:100%;margin:0;}
+  .panel{border:none !important;box-shadow:none !important;padding:0 !important;background:#fff !important;}
   #bcWarn{display:none;}
   .card-check{display:none !important;}
   .print-card.unselected{display:none !important;}
