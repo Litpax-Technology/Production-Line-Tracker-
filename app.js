@@ -29,8 +29,9 @@ function inHall(itemHall) {
 function loadAll() {
   // First pass fetches settings; a second pass pulls logs only if the
   // Settings sheet has out-of-sequence checking switched on.
-  return call('init', { limit: 0 }).then(function (res) {
+  return call('init', { limit: 0, counts: 1 }).then(function (res) {
     applySettings(res.settings);
+    state.sessionCount = res.todayCounts || {};
     var rows = res.stationRows || [];
     state.stationRows = rows.filter(function (r) { return inHall(r.hall); });
     state.stations = state.stationRows.map(function (r) { return r.name; });
@@ -59,8 +60,9 @@ function startPolling() {
 /** Refreshes staff/stations only, so a newly added employee can sign in. */
 function refreshLists() {
   if (state.pending > 0) return;
-  call('init', { limit: 0 }).then(function (res) {
+  call('init', { limit: 0, counts: 1 }).then(function (res) {
     applySettings(res.settings);
+    state.sessionCount = res.todayCounts || {};
     var rows = res.stationRows || [];
     state.stationRows = rows.filter(function (r) { return inHall(r.hall); });
     state.stations = state.stationRows.map(function (r) { return r.name; });
@@ -236,7 +238,7 @@ function commitScan(code, station, emp) {
   state.recentScans.unshift({ packId: code, station: station, operator: emp.name, time: ts, entry: entry });
   state.recentScans = state.recentScans.slice(0, 30);
 
-  var ck = station + '||' + emp.id;
+  var ck = station + '||' + emp.id.toLowerCase();
   state.sessionCount[ck] = (state.sessionCount[ck] || 0) + 1;
 
   flash('flash'); beep(true); render();
@@ -341,13 +343,13 @@ function renderScan() {
   state.stations.forEach(function (st) {
     var e = state.stationEmp[st];
     if (!e) return;
-    var c = sessionCount[st + '||' + e.id] || 0;
+    var c = sessionCount[st + '||' + e.id.toLowerCase()] || 0;
     if (c > maxCount) maxCount = c;
   });
 
   var boardCards = state.stations.map(function (st) {
     var emp = state.stationEmp[st];
-    var count = emp ? (sessionCount[st + '||' + emp.id] || 0) : 0;
+    var count = emp ? (sessionCount[st + '||' + emp.id.toLowerCase()] || 0) : 0;
     if (emp) {
       var initials = emp.name.trim().split(/\s+/).map(function (w) { return w[0]; }).join('').slice(0, 2).toUpperCase();
       var pct = maxCount ? Math.round(count / maxCount * 100) : 0;
