@@ -6,6 +6,7 @@ state = {
   staff: [], stations: [], stationRows: [], packs: {},
   stationEmp: {}, manualStation: '',   // per-station employee; manual station for prefix-less scans
   lastScan: null, recentScans: [],
+  sessionCount: {},                    // "station||empId" -> scans this session (no cap)
   loading: true, connected: true, pending: 0, statusMsg: ''
 };
 
@@ -235,6 +236,9 @@ function commitScan(code, station, emp) {
   state.recentScans.unshift({ packId: code, station: station, operator: emp.name, time: ts, entry: entry });
   state.recentScans = state.recentScans.slice(0, 30);
 
+  var ck = station + '||' + emp.id;
+  state.sessionCount[ck] = (state.sessionCount[ck] || 0) + 1;
+
   flash('flash'); beep(true); render();
 
   call('scan', {
@@ -332,17 +336,18 @@ function renderScan() {
 
   // Live board: one card per station in this hall, showing who is signed in
   // and how many batteries they have scanned this session.
-  var sessionCount = {};
+  var sessionCount = state.sessionCount;
   var maxCount = 0;
-  state.recentScans.forEach(function (r) {
-    var k = r.station + '||' + r.operator;
-    sessionCount[k] = (sessionCount[k] || 0) + 1;
-    if (sessionCount[k] > maxCount) maxCount = sessionCount[k];
+  state.stations.forEach(function (st) {
+    var e = state.stationEmp[st];
+    if (!e) return;
+    var c = sessionCount[st + '||' + e.id] || 0;
+    if (c > maxCount) maxCount = c;
   });
 
   var boardCards = state.stations.map(function (st) {
     var emp = state.stationEmp[st];
-    var count = emp ? (sessionCount[st + '||' + emp.name] || 0) : 0;
+    var count = emp ? (sessionCount[st + '||' + emp.id] || 0) : 0;
     if (emp) {
       var initials = emp.name.trim().split(/\s+/).map(function (w) { return w[0]; }).join('').slice(0, 2).toUpperCase();
       var pct = maxCount ? Math.round(count / maxCount * 100) : 0;
