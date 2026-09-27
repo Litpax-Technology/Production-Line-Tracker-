@@ -245,7 +245,8 @@ function commitScan(code, station, emp) {
 
   call('scan', {
     packId: code, station: entry.station,
-    operatorId: entry.operatorId, operatorName: entry.operatorName
+    operatorId: entry.operatorId, operatorName: entry.operatorName,
+    hall: state.hall
   }).then(function () {
     entry.synced = true; render();
   }, function (err) {
@@ -271,7 +272,8 @@ function retryFailed() {
     chain = chain.then(function () {
       return call('scan', {
         packId: j.packId, station: j.entry.station,
-        operatorId: j.entry.operatorId, operatorName: j.entry.operatorName
+        operatorId: j.entry.operatorId, operatorName: j.entry.operatorName,
+        hall: state.hall
       }).then(function () { j.entry.synced = true; j.entry.failed = false; }, function () {});
     });
   });
