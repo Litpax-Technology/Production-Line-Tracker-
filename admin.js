@@ -650,6 +650,8 @@ function ensureQR(cb) {
 
 function setLabelHall(v) {
   state.labelHall = v;
+  state.labelPick = '';          // hall badla to model reset
+  renderContentOnly();
 }
 
 function setLabelModel(v) {
@@ -672,7 +674,7 @@ function generateSerials() {
   var bmsEl = document.getElementById('labelBmsOpt');
   var cellOpt = cellEl && !cellEl.disabled ? cellEl.value : '';
   var bmsOpt = bmsEl && !bmsEl.disabled ? bmsEl.value : '';
-  if (state.halls.length && !hall) { alert('Pehle hall chuno.'); return; }
+  if (!hall) { alert('Pehle hall chuno.'); return; }
   if (!model) { alert('Pehle model chuno.'); return; }
   if (!cellOpt) { alert('Is model ka cell Master BOM me nahi hai. Pehle Master me daalo.'); return; }
   if (!bmsOpt) { alert('Is model ka BMS Master BOM me nahi hai. Pehle Master me daalo.'); return; }
@@ -711,10 +713,15 @@ function renderLabels() {
   var selModel = null;
   state.models.forEach(function (m) { if (m.code === state.labelPick) selModel = m; });
 
-  // Halls jinke models hain
+  // Hall list = PLT ke halls + Master ki categories
+  var hallList = state.halls.slice();
+  state.models.forEach(function (m) {
+    if (m.category && hallList.indexOf(m.category) < 0) hallList.push(m.category);
+  });
+
   var hallField = '';
-  if (state.halls.length) {
-    var hopts = '<option value="">-- hall chuno --</option>' + state.halls.map(function (hn) {
+  if (hallList.length) {
+    var hopts = '<option value="">-- hall chuno --</option>' + hallList.map(function (hn) {
       return '<option value="' + esc(hn) + '"' + (state.labelHall === hn ? ' selected' : '') + '>' + esc(hn) + '</option>';
     }).join('');
     hallField = '<div class="field"><label>Hall</label><select id="labelHall" onchange="setLabelHall(this.value)">' +
@@ -723,7 +730,10 @@ function renderLabels() {
 
   var modelField;
   if (state.models.length) {
-    var shown = state.models;
+    var hk = String(state.labelHall || '').trim().toLowerCase();
+    var shown = state.models.filter(function (m) {
+      return !hk || String(m.category || '').trim().toLowerCase() === hk;
+    });
     var opts = '<option value="">-- pick a model --</option>' + shown.map(function (m) {
       return '<option value="' + esc(m.code) + '"' + (state.labelPick === m.code ? ' selected' : '') + '>' +
              esc(m.name) + ' (' + esc(m.code) + ')</option>';
