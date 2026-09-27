@@ -323,13 +323,6 @@ function exportEmployeeCSV() {
 
 /* ---------------- Setup ---------------- */
 
-function setModelHall(i, hall) {
-  var m = state.models[i];
-  if (!m) return;
-  call('setModelHall', { code: m.code, name: m.name, hall: hall }).then(function () {
-    m.hall = hall;
-  }, function (err) { alert(err.message); });
-}
 
 function hallOptions(sel, allowNew) {
   var opts = '<option value="">-- pick hall --</option>';
@@ -464,32 +457,26 @@ var stationRows = state.stationRows.map(function (r, i) {
     '<div class="table-wrap"><table><thead><tr><th>Key</th><th>Current value</th></tr></thead><tbody>' +
     settingRows + '</tbody></table></div></div>';
 
-  var modelRows = state.models.map(function (m, i) {
+  var modelRows = state.models.map(function (m) {
     var cell = (m.cellOptions || []).map(function (o) {
       return esc(o.item) + ' ×' + o.qty + ' <span class="hall-tag">' + esc(o.opt) + '</span>';
     }).join('<br>') || '<span class="hall-tag warn">cell nahi</span>';
     var bms = (m.bmsOptions || []).map(function (o) {
       return esc(o.item) + ' <span class="hall-tag">' + esc(o.opt) + '</span>';
     }).join('<br>') || '<span class="hall-tag warn">BMS nahi</span>';
-    var hallSel = '<select class="hall-inline" onchange="setModelHall(' + i + ', this.value)">' +
-      '<option value="">no hall</option>' +
-      state.halls.map(function (hn) {
-        return '<option value="' + esc(hn) + '"' + (m.hall === hn ? ' selected' : '') + '>' + esc(hn) + '</option>';
-      }).join('') + '</select>';
     return '<div class="list-row" style="flex-wrap:wrap;gap:10px;align-items:flex-start;">' +
       '<div style="flex:1 1 170px;"><div class="name">' + esc(m.name) + '</div>' +
-      '<div class="sub">Serial code: ' + esc(m.code) + ' &middot; last number: ' + m.counter + '</div></div>' +
+      '<div class="sub">Serial code: ' + esc(m.code) + '</div></div>' +
       '<div style="flex:1 1 240px;font-size:12px;line-height:1.7;">' + cell + '</div>' +
-      '<div style="flex:1 1 200px;font-size:12px;line-height:1.7;">' + bms + '</div>' +
-      '<div>' + hallSel + '</div></div>';
+      '<div style="flex:1 1 200px;font-size:12px;line-height:1.7;">' + bms + '</div></div>';
   }).join('');
 
   var modelsPanel = '<div class="panel"><div class="panel-title">Battery models (Master Sheet se)</div>' +
     (state.modelsError ? '<div class="empty" style="color:var(--danger);">' + esc(state.modelsError) + '</div>' : '') +
-    (modelRows || '<div class="empty">Master Sheet me koi active model nahi mila jiska SerialPrefix bhara ho.</div>') +
-    '<p style="font-size:12px;color:var(--text-muted);margin:10px 0 0;">Naya model, Cells aur BMS ab <b>Master Sheet</b> ' +
-    '(Models + BOM tab) me banao. Yahan sirf Hall set hota hai. Master ka badlav yahan 5 minute me dikhta hai. Serial pattern: ' +
-    esc(CONFIG.SETTINGS && CONFIG.SETTINGS.SerialPrefix || 'LP-') + '&lt;SerialPrefix&gt;-00001.</p>' +
+    (modelRows || '<div class="empty">Master Sheet me koi active model nahi mila.</div>') +
+    '<p style="font-size:12px;color:var(--text-muted);margin:10px 0 0;">Model, Cells aur BMS sirf <b>Master Sheet</b> ' +
+    '(Models + BOM tab) me banao/badlo. Yahan sirf dekhne ke liye hai. Master ka badlav yahan 5 minute me dikhta hai. Serial pattern: ' +
+    esc(CONFIG.SETTINGS && CONFIG.SETTINGS.SerialPrefix || 'LP-') + '&lt;serial code&gt;-00001.</p>' +
     '</div>';
 
   return settingsPanel + modelsPanel +
@@ -663,8 +650,6 @@ function ensureQR(cb) {
 
 function setLabelHall(v) {
   state.labelHall = v;
-  state.labelPick = '';      // hall badla to model reset
-  renderContentOnly();
 }
 
 function setLabelModel(v) {
@@ -681,10 +666,13 @@ function setLabelOpt(kind, v) {
 function generateSerials() {
   var qty = parseInt(document.getElementById('labelQty').value, 10);
   var model = state.labelPick;
+  var hallEl = document.getElementById('labelHall');
+  var hall = hallEl ? hallEl.value : '';
   var cellEl = document.getElementById('labelCellOpt');
   var bmsEl = document.getElementById('labelBmsOpt');
   var cellOpt = cellEl && !cellEl.disabled ? cellEl.value : '';
   var bmsOpt = bmsEl && !bmsEl.disabled ? bmsEl.value : '';
+  if (state.halls.length && !hall) { alert('Pehle hall chuno.'); return; }
   if (!model) { alert('Pehle model chuno.'); return; }
   if (!cellOpt) { alert('Is model ka cell Master BOM me nahi hai. Pehle Master me daalo.'); return; }
   if (!bmsOpt) { alert('Is model ka BMS Master BOM me nahi hai. Pehle Master me daalo.'); return; }
@@ -694,10 +682,9 @@ function generateSerials() {
   var btn = document.getElementById('genBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'Generating...'; }
 
-  call('newSerials', { qty: qty, model: model, cellOpt: cellOpt, bmsOpt: bmsOpt }).then(function (res) {
+  call('newSerials', { qty: qty, model: model, hall: hall, cellOpt: cellOpt, bmsOpt: bmsOpt }).then(function (res) {
     state.labels = res.serials || [];
     state.labelModel = res.model || '';
-    state.models.forEach(function (m) { if (m.code === model) m.counter = res.nextCounter; });
     state.labelCellOpt = 'Main';
     state.labelBmsOpt = 'Main';
     renderContentOnly();
@@ -725,14 +712,9 @@ function renderLabels() {
   state.models.forEach(function (m) { if (m.code === state.labelPick) selModel = m; });
 
   // Halls jinke models hain
-  var modelHalls = [];
-  state.models.forEach(function (m) {
-    if (m.hall && modelHalls.indexOf(m.hall) < 0) modelHalls.push(m.hall);
-  });
-
   var hallField = '';
-  if (modelHalls.length) {
-    var hopts = '<option value="">-- all halls --</option>' + modelHalls.map(function (hn) {
+  if (state.halls.length) {
+    var hopts = '<option value="">-- hall chuno --</option>' + state.halls.map(function (hn) {
       return '<option value="' + esc(hn) + '"' + (state.labelHall === hn ? ' selected' : '') + '>' + esc(hn) + '</option>';
     }).join('');
     hallField = '<div class="field"><label>Hall</label><select id="labelHall" onchange="setLabelHall(this.value)">' +
@@ -741,9 +723,7 @@ function renderLabels() {
 
   var modelField;
   if (state.models.length) {
-    var shown = state.models.filter(function (m) {
-      return !state.labelHall || m.hall === state.labelHall;
-    });
+    var shown = state.models;
     var opts = '<option value="">-- pick a model --</option>' + shown.map(function (m) {
       return '<option value="' + esc(m.code) + '"' + (state.labelPick === m.code ? ' selected' : '') + '>' +
              esc(m.name) + ' (' + esc(m.code) + ')</option>';
