@@ -9,6 +9,7 @@ state = {
   empRange: 'today', expandedEmp: null,
   sel: { station: {}, staff: {} },   // false = unchecked; missing = checked
   labels: [], labelModel: '', labelHall: '',        // serials currently laid out for printing
+  labelPick: '', labelCellOpt: 'Main', labelBmsOpt: 'Main', modelsError: '',
   models: [], halls: [], stationRows: [],
   empFrom: '', empTo: '',            // custom date range on the Employees tab
   loading: true, connected: true, pending: 0, statusMsg: ''
@@ -22,6 +23,7 @@ function loadAll() {
   return call('init', { limit: CONFIG.LOG_LIMIT || 3000 }).then(function (res) {
     applySettings(res.settings);
     state.models = res.models || [];
+    state.modelsError = res.modelsError || '';
     state.staff = res.staff || [];
     state.stations = res.stations || [];
     state.stationRows = res.stationRows || [];
@@ -42,6 +44,7 @@ function refreshAll() {
   call('init', { limit: CONFIG.LOG_LIMIT || 3000 }).then(function (res) {
     applySettings(res.settings);
     state.models = res.models || [];
+    state.modelsError = res.modelsError || '';
     state.staff = res.staff || [];
     state.stations = res.stations || [];
     state.stationRows = res.stationRows || [];
@@ -320,42 +323,11 @@ function exportEmployeeCSV() {
 
 /* ---------------- Setup ---------------- */
 
-function addModel() {
-  var nameEl = document.getElementById('modelName');
-  var codeEl = document.getElementById('modelCode');
-  var cntEl = document.getElementById('modelCounter');
-  var cellsEl = document.getElementById('modelCells');
-  var bmsEl = document.getElementById('modelBms');
-  var name = nameEl.value.trim(), code = codeEl.value.trim().toUpperCase();
-  var cells = cellsEl ? cellsEl.value.trim() : '';
-  var bms = bmsEl ? bmsEl.value.trim() : '';
-  if (!name || !code) { alert('Model name and short code are both required.'); return; }
-  call('addModel', { name: name, code: code, counter: cntEl.value || 0, cells: cells, bms: bms }).then(function () {
-    state.models.push({ name: name, code: code, counter: parseInt(cntEl.value, 10) || 0, cells: cells, bms: bms });
-    nameEl.value = ''; codeEl.value = ''; cntEl.value = '0';
-    if (cellsEl) cellsEl.value = ''; if (bmsEl) bmsEl.value = '';
-    renderContentOnly();
-  }, function (err) { alert(err.message); });
-}
-
-function removeModelAt(i) {
-  var m = state.models[i];
-  if (!m || !confirm('Remove model "' + m.name + '"? Serials already issued are kept.')) return;
-  call('delModel', { code: m.code }).then(function () {
-    state.models.splice(i, 1); renderContentOnly();
-  }, function (err) { alert(err.message); });
-}
-
-function saveModelSpec(i) {
+function setModelHall(i, hall) {
   var m = state.models[i];
   if (!m) return;
-  var cells = (document.getElementById('mspec-cells-' + i) || {}).value || '';
-  var bms = (document.getElementById('mspec-bms-' + i) || {}).value || '';
-  cells = cells.trim(); bms = bms.trim();
-  call('setModelSpec', { code: m.code, cells: cells, bms: bms }).then(function () {
-    m.cells = cells; m.bms = bms;
-    var btn = document.getElementById('mspec-btn-' + i);
-    if (btn) { btn.textContent = 'Saved'; setTimeout(function () { if (btn) btn.textContent = 'Save'; }, 1500); }
+  call('setModelHall', { code: m.code, name: m.name, hall: hall }).then(function () {
+    m.hall = hall;
   }, function (err) { alert(err.message); });
 }
 
@@ -493,30 +465,31 @@ var stationRows = state.stationRows.map(function (r, i) {
     settingRows + '</tbody></table></div></div>';
 
   var modelRows = state.models.map(function (m, i) {
-    return '<div class="list-row" style="flex-wrap:wrap;gap:8px;">' +
-      '<div style="flex:1 1 180px;"><div class="name">' + esc(m.name) + '</div>' +
-      '<div class="sub">' + esc(m.code) + ' &middot; last number: ' + m.counter + '</div></div>' +
-      '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">' +
-        '<input id="mspec-cells-' + i + '" class="search-input" style="width:180px;" placeholder="Cells" value="' + esc(m.cells || '') + '">' +
-        '<input id="mspec-bms-' + i + '" class="search-input" style="width:170px;" placeholder="BMS" value="' + esc(m.bms || '') + '">' +
-        '<button id="mspec-btn-' + i + '" class="icon-btn" onclick="saveModelSpec(' + i + ')">Save</button>' +
-        '<button class="icon-btn danger" onclick="removeModelAt(' + i + ')">X</button>' +
-      '</div></div>';
+    var cell = (m.cellOptions || []).map(function (o) {
+      return esc(o.item) + ' ×' + o.qty + ' <span class="hall-tag">' + esc(o.opt) + '</span>';
+    }).join('<br>') || '<span class="hall-tag warn">cell nahi</span>';
+    var bms = (m.bmsOptions || []).map(function (o) {
+      return esc(o.item) + ' <span class="hall-tag">' + esc(o.opt) + '</span>';
+    }).join('<br>') || '<span class="hall-tag warn">BMS nahi</span>';
+    var hallSel = '<select class="hall-inline" onchange="setModelHall(' + i + ', this.value)">' +
+      '<option value="">no hall</option>' +
+      state.halls.map(function (hn) {
+        return '<option value="' + esc(hn) + '"' + (m.hall === hn ? ' selected' : '') + '>' + esc(hn) + '</option>';
+      }).join('') + '</select>';
+    return '<div class="list-row" style="flex-wrap:wrap;gap:10px;align-items:flex-start;">' +
+      '<div style="flex:1 1 170px;"><div class="name">' + esc(m.name) + '</div>' +
+      '<div class="sub">Serial code: ' + esc(m.code) + ' &middot; last number: ' + m.counter + '</div></div>' +
+      '<div style="flex:1 1 240px;font-size:12px;line-height:1.7;">' + cell + '</div>' +
+      '<div style="flex:1 1 200px;font-size:12px;line-height:1.7;">' + bms + '</div>' +
+      '<div>' + hallSel + '</div></div>';
   }).join('');
 
-  var modelsPanel = '<div class="panel"><div class="panel-title">Battery models</div>' +
-    (modelRows || '<div class="empty">No models yet. Serials will be generated without a model code.</div>') +
-    '<div class="row" style="margin-top:12px;">' +
-      '<div class="field"><label>Model name</label><input id="modelName" placeholder="2 Wheeler 60V 30Ah"></div>' +
-      '<div class="field"><label>Short code (goes into the serial)</label><input id="modelCode" placeholder="2W60"></div>' +
-      '<div class="field"><label>Start counter at</label><input id="modelCounter" type="number" min="0" value="0"></div>' +
-      '<div class="field"><label>Cells (optional)</label><input id="modelCells" placeholder="e.g. LiFePO4 32700 6Ah"></div>' +
-      '<div class="field"><label>BMS (optional)</label><input id="modelBms" placeholder="e.g. 60V 30A Smart BMS"></div>' +
-    '</div>' +
-    '<div style="margin-top:10px;"><button class="btn" onclick="addModel()">Add model</button></div>' +
-    '<p style="font-size:12px;color:var(--text-muted);margin:10px 0 0;">Serial pattern: ' +
-    esc(CONFIG.SETTINGS && CONFIG.SETTINGS.SerialPrefix || 'LP-') + '&lt;code&gt;-00001. ' +
-    'Each model counts separately. To restart a model\'s numbering, edit its Counter in the Models tab of the Sheet.</p>' +
+  var modelsPanel = '<div class="panel"><div class="panel-title">Battery models (Master Sheet se)</div>' +
+    (state.modelsError ? '<div class="empty" style="color:var(--danger);">' + esc(state.modelsError) + '</div>' : '') +
+    (modelRows || '<div class="empty">Master Sheet me koi active model nahi mila jiska SerialPrefix bhara ho.</div>') +
+    '<p style="font-size:12px;color:var(--text-muted);margin:10px 0 0;">Naya model, Cells aur BMS ab <b>Master Sheet</b> ' +
+    '(Models + BOM tab) me banao. Yahan sirf Hall set hota hai. Master ka badlav yahan 5 minute me dikhta hai. Serial pattern: ' +
+    esc(CONFIG.SETTINGS && CONFIG.SETTINGS.SerialPrefix || 'LP-') + '&lt;SerialPrefix&gt;-00001.</p>' +
     '</div>';
 
   return settingsPanel + modelsPanel +
@@ -690,40 +663,43 @@ function ensureQR(cb) {
 
 function setLabelHall(v) {
   state.labelHall = v;
-  state.labelModel = '';   // hall badla to model reset
+  state.labelPick = '';      // hall badla to model reset
   renderContentOnly();
 }
 
 function setLabelModel(v) {
-  state.labelModel = v;
-  var m = null;
-  state.models.forEach(function (x) { if (x.code === v) m = x; });
-  var cellsEl = document.getElementById('labelCells');
-  var bmsEl = document.getElementById('labelBms');
-  if (cellsEl) cellsEl.value = (m && m.cells) ? m.cells : '';
-  if (bmsEl)  bmsEl.value  = (m && m.bms)  ? m.bms  : '';
+  state.labelPick = v;
+  state.labelCellOpt = 'Main';
+  state.labelBmsOpt = 'Main';
+  renderContentOnly();
+}
+
+function setLabelOpt(kind, v) {
+  if (kind === 'cell') state.labelCellOpt = v; else state.labelBmsOpt = v;
 }
 
 function generateSerials() {
   var qty = parseInt(document.getElementById('labelQty').value, 10);
-  var modelEl = document.getElementById('labelModel');
-  var model = modelEl ? modelEl.value : '';
-  var cellsEl = document.getElementById('labelCells');
-  var bmsEl = document.getElementById('labelBms');
-  var cells = cellsEl ? cellsEl.value.trim() : '';
-  var bms = bmsEl ? bmsEl.value.trim() : '';
-  if (state.models.length && !model) { alert('Pick a model first.'); return; }
-  if (!cells) { alert('Enter the cell type used.'); return; }
-  if (!bms) { alert('Enter the BMS used.'); return; }
+  var model = state.labelPick;
+  var cellEl = document.getElementById('labelCellOpt');
+  var bmsEl = document.getElementById('labelBmsOpt');
+  var cellOpt = cellEl && !cellEl.disabled ? cellEl.value : '';
+  var bmsOpt = bmsEl && !bmsEl.disabled ? bmsEl.value : '';
+  if (!model) { alert('Pehle model chuno.'); return; }
+  if (!cellOpt) { alert('Is model ka cell Master BOM me nahi hai. Pehle Master me daalo.'); return; }
+  if (!bmsOpt) { alert('Is model ka BMS Master BOM me nahi hai. Pehle Master me daalo.'); return; }
   if (!qty || qty < 1) { alert('Enter how many batteries you need labels for.'); return; }
   if (qty > 200) { alert('Maximum 200 at a time.'); return; }
 
   var btn = document.getElementById('genBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'Generating...'; }
 
-  call('newSerials', { qty: qty, model: model, cells: cells, bms: bms }).then(function (res) {
+  call('newSerials', { qty: qty, model: model, cellOpt: cellOpt, bmsOpt: bmsOpt }).then(function (res) {
     state.labels = res.serials || [];
     state.labelModel = res.model || '';
+    state.models.forEach(function (m) { if (m.code === model) m.counter = res.nextCounter; });
+    state.labelCellOpt = 'Main';
+    state.labelBmsOpt = 'Main';
     renderContentOnly();
   }, function (err) {
     alert('Could not generate serials: ' + err.message);
@@ -746,9 +722,9 @@ function renderLabels() {
   var w = CONFIG.LABEL_WIDTH_MM || 50;
   var h = CONFIG.LABEL_HEIGHT_MM || 25;
   var selModel = null;
-  state.models.forEach(function (m) { if (m.code === state.labelModel) selModel = m; });
+  state.models.forEach(function (m) { if (m.code === state.labelPick) selModel = m; });
 
-  // Halls that actually have models
+  // Halls jinke models hain
   var modelHalls = [];
   state.models.forEach(function (m) {
     if (m.hall && modelHalls.indexOf(m.hall) < 0) modelHalls.push(m.hall);
@@ -763,13 +739,13 @@ function renderLabels() {
                 hopts + '</select></div>';
   }
 
-  var modelField = '';
+  var modelField;
   if (state.models.length) {
     var shown = state.models.filter(function (m) {
       return !state.labelHall || m.hall === state.labelHall;
     });
     var opts = '<option value="">-- pick a model --</option>' + shown.map(function (m) {
-      return '<option value="' + esc(m.code) + '"' + (state.labelModel === m.code ? ' selected' : '') + '>' +
+      return '<option value="' + esc(m.code) + '"' + (state.labelPick === m.code ? ' selected' : '') + '>' +
              esc(m.name) + ' (' + esc(m.code) + ')</option>';
     }).join('');
     modelField = hallField +
@@ -777,27 +753,38 @@ function renderLabels() {
                  opts + '</select></div>';
   } else {
     modelField = '<div class="field"><label>Model</label>' +
-      '<div style="font-size:13px;color:var(--text-muted);padding:9px 0;">No models added yet - ' +
-      'add them on the Setup tab, or leave it and serials will be generated without a model.</div></div>';
+      '<div style="font-size:13px;color:var(--danger);padding:9px 0;">' +
+      esc(state.modelsError || 'Master Sheet me koi active model nahi mila jiska SerialPrefix bhara ho.') +
+      '</div></div>';
   }
 
+  // Cell / BMS dropdown — Master BOM ke Main/Backup
+  var optSelect = function (id, list, cur, kind, withQty) {
+    if (!selModel) return '<select id="' + id + '" disabled><option>-- pehle model chuno --</option></select>';
+    if (!list.length) {
+      return '<select id="' + id + '" disabled><option>Master BOM me ' + kind + ' nahi hai</option></select>';
+    }
+    return '<select id="' + id + '" onchange="setLabelOpt(\'' + kind + '\', this.value)">' + list.map(function (o) {
+      return '<option value="' + esc(o.opt) + '"' + (cur === o.opt ? ' selected' : '') + '>' +
+             esc(o.item) + (withQty ? ' ×' + o.qty : '') + ' (' + esc(o.opt) + ')</option>';
+    }).join('') + '</select>';
+  };
+  var cellField = '<div class="field"><label>Cells used</label>' +
+    optSelect('labelCellOpt', selModel ? (selModel.cellOptions || []) : [], state.labelCellOpt, 'cell', true) + '</div>';
+  var bmsField = '<div class="field"><label>BMS used</label>' +
+    optSelect('labelBmsOpt', selModel ? (selModel.bmsOptions || []) : [], state.labelBmsOpt, 'BMS', false) + '</div>';
+
   var head = '<div class="panel"><div class="panel-title">New battery labels</div>' +
-    '<p style="color:var(--text-muted);font-size:13.5px;margin-top:-6px;">Each model has its own counter, and every ' +
-    'serial is recorded in the Sheet as it is generated, so a number is never issued twice. ' +
-    'The cell type and BMS you enter are saved against every serial in this batch.</p>' +
-    '<div class="row" style="max-width:720px;">' +
-      modelField +
-      '<div class="field"><label>Cells used</label>' +
-      '<input id="labelCells" placeholder="e.g. LiFePO4 32700 6Ah" value="' +
-      esc(selModel && selModel.cells ? selModel.cells : '') + '"></div>' +
-      '<div class="field"><label>BMS used</label>' +
-      '<input id="labelBms" placeholder="e.g. 60V 30A Smart BMS" value="' +
-      esc(selModel && selModel.bms ? selModel.bms : '') + '"></div>' +
+    '<p style="color:var(--text-muted);font-size:13.5px;margin-top:-6px;">Model, Cells aur BMS <b>Master Sheet</b> se aate hain. ' +
+    'Normal me <b>Main</b> rakho; Main stock me na ho to <b>Backup</b> chuno. Jo chuna, wahi har serial ke saath save hota hai.</p>' +
+    '<div class="row" style="max-width:960px;">' +
+      modelField + cellField + bmsField +
       '<div class="field"><label>How many batteries</label>' +
       '<input id="labelQty" type="number" min="1" max="200" value="10" ' +
       'onkeydown="if(event.key===\'Enter\') generateSerials();"></div>' +
     '</div>' +
-    '<div style="margin-top:10px;"><button class="btn" id="genBtn" onclick="generateSerials()">Generate serials</button></div>' +
+    '<div style="margin-top:10px;"><button class="btn" id="genBtn" onclick="generateSerials()"' +
+      (selModel ? '' : ' disabled') + '>Generate serials</button></div>' +
     '</div>' +
     '<div class="panel"><div class="panel-title">Reprint existing labels</div>' +
     '<p style="color:var(--text-muted);font-size:13.5px;margin-top:-6px;">Label damaged or lost? Paste the serials ' +
