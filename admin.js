@@ -919,7 +919,7 @@ function supPickPlan(id) { state.sup.pick = id; renderContentOnly(); }
 /* Mode A — 10-10 ke batch me bhejta hai, taaki scanner ka lock zyada der na ruke */
 function supBulk() {
   if (state.sup.busy) return;
-  var pl = state.sup.plans.filter(function (p) { return p.planId === state.sup.pick; })[0];
+  var pl = state.sup.plans.filter(function (p) { return p.key === state.sup.pick; })[0];
   if (!pl) { alert('Pehle upar se plan chuno'); return; }
   var qty = parseInt(document.getElementById('supQty').value, 10) || 0;
   var worker = document.getElementById('supWorkerA').value;
@@ -950,7 +950,7 @@ function supBulk() {
     var n = Math.min(10, left);
     if (btn) { btn.disabled = true; btn.textContent = 'Saving... ' + doneAll.length + '/' + qty; }
     call('manualComplete', {
-      token: state.sup.token, planId: pl.planId, qty: n, enteredBy: by, workerId: worker
+      token: state.sup.token, planKey: pl.key, qty: n, enteredBy: by, workerId: worker
     }).then(function (res) {
       doneAll = doneAll.concat(res.completed || []);
       skippedAll = skippedAll.concat(res.skipped || []);
@@ -1022,7 +1022,7 @@ function renderManual() {
 
   // Mode A
   var planRows = s.plans.map(function (p) {
-    var on = s.pick === p.planId;
+    var on = s.pick === p.key;
     if (p.pending <= 0) {
       return '<tr style="opacity:.55;">' +
         '<td><span class="badge pass">✓ Done</span></td>' +
@@ -1032,7 +1032,7 @@ function renderManual() {
         '<td class="mono">' + p.done + '</td><td class="mono">0</td><td class="mono">—</td></tr>';
     }
     return '<tr style="cursor:pointer;' + (on ? 'background:rgba(99,102,241,.10);' : '') + '" ' +
-      'data-p="' + esc(p.planId) + '" onclick="supPickPlan(this.dataset.p)">' +
+      'data-p="' + esc(p.key) + '" onclick="supPickPlan(this.dataset.p)">' +
       '<td><input type="radio"' + (on ? ' checked' : '') + '></td>' +
       '<td class="mono">' + esc(p.planId) + '</td><td>' + esc(p.date) + '</td>' +
       '<td class="mono">' + esc(p.orderId) + '</td><td>' + esc(p.customer) + '</td>' +
