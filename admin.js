@@ -57,7 +57,11 @@ function refreshAll() {
 
 /* ---------------- Dashboard ---------------- */
 
-function setTab(t) { state.tab = t; state.expandedPack = null; state.expandedEmp = null; render(); }
+function setTab(t) {
+  state.tab = t; state.expandedPack = null; state.expandedEmp = null;
+  if (t === 'manual' && state.sup) state.sup.loaded = false;
+  render();
+}
 function setSearch(v) { state.search = v; renderContentOnly(); }
 function togglePack(i) {
   var p = state.viewPacks[i];
@@ -71,9 +75,16 @@ function packState(p) {
   var lastResult = String(h[h.length - 1].result || '').toLowerCase();
   if (lastResult === 'fail')   return { key: 'fail',     label: 'Fail',        cls: 'fail' };
   if (lastResult === 'rework') return { key: 'rework',   label: 'Rework',      cls: 'pending' };
-  var completeStage = (CONFIG.SETTINGS && CONFIG.SETTINGS.CompleteStage) ||
-                      (state.stations.length ? state.stations[state.stations.length - 1] : '');
-  var done = completeStage && h.some(function (x) { return x.station === completeStage; });
+  var flagged = (state.stationRows || []).filter(function (r) { return r.complete; })
+                                         .map(function (r) { return r.name; });
+  var done;
+  if (flagged.length) {
+    done = h.some(function (x) { return flagged.indexOf(x.station) >= 0; });
+  } else {
+    var completeStage = (CONFIG.SETTINGS && CONFIG.SETTINGS.CompleteStage) ||
+                        (state.stations.length ? state.stations[state.stations.length - 1] : '');
+    done = completeStage && h.some(function (x) { return x.station === completeStage; });
+  }
   if (done) return { key: 'complete', label: 'Complete', cls: 'pass' };
   return { key: 'progress', label: 'In progress', cls: 'pending' };
 }
@@ -842,13 +853,232 @@ function drawLabels() {
   });
 }
 
+/* ---------------- Manual Entry (Task 0) ---------------- */
+
+state.sup = { token: '', plans: [], warn: '', today: [], pick: '', loaded: false, loading: false, busy: false };
+try { state.sup.token = sessionStorage.getItem('plt_sup') || ''; } catch (e) {}
+
+function supByVal() { try { return localStorage.getItem('plt_sup_by') || ''; } catch (e) { return ''; } }
+function supBy() {
+  var el = document.getElementById('supBy');
+  var v = el ? el.value.trim() : '';
+  try { localStorage.setItem('plt_sup_by', v); } catch (e) {}
+  return v;
+}
+
+function supLogout() {
+  state.sup.token = ''; state.sup.loaded = false; state.sup.plans = []; state.sup.today = []; state.sup.pick = '';
+  try { sessionStorage.removeItem('plt_sup'); } catch (e) {}
+  renderContentOnly();
+}
+
+function supErr(err) {
+  var m = (err && err.message) || String(err);
+  alert(m);
+  if (/login|session/i.test(m)) supLogout();
+}
+
+function supLogin() {
+  var el = document.getElementById('supPin');
+  var pin = el ? el.value.trim() : '';
+  if (!pin) { alert('PIN daalo'); return; }
+  call('supLogin', { pin: pin }).then(function (res) {
+    state.sup.token = res.token;
+    try { sessionStorage.setItem('plt_sup', res.token); } catch (e) {}
+    state.sup.loaded = false;
+    renderContentOnly();
+  }, function (err) { alert(err.message); });
+}
+
+function supLoad() {
+  if (!state.sup.token || state.sup.loading) return;
+  state.sup.loading = true;
+  call('pendingPlans', { token: state.sup.token }).then(function (r1) {
+    state.sup.plans = r1.plans || [];
+    state.sup.warn = r1.warn || '';
+    return call('todayCompletions', { token: state.sup.token });
+  }).then(function (r2) {
+    state.sup.today = (r2 && r2.rows) || [];
+    state.sup.loaded = true; state.sup.loading = false;
+    if (state.tab === 'manual') renderContentOnly();
+  }, function (err) {
+    state.sup.loading = false; state.sup.loaded = true;
+    supErr(err);
+  });
+}
+
+function supRefresh() { state.sup.loaded = false; renderContentOnly(); }
+function supPickPlan(id) { state.sup.pick = id; renderContentOnly(); }
+
+/* Mode A — 10-10 ke batch me bhejta hai, taaki scanner ka lock zyada der na ruke */
+function supBulk() {
+  if (state.sup.busy) return;
+  var pl = state.sup.plans.filter(function (p) { return p.planId === state.sup.pick; })[0];
+  if (!pl) { alert('Pehle upar se plan chuno'); return; }
+  var qty = parseInt(document.getElementById('supQty').value, 10) || 0;
+  var worker = document.getElementById('supWorkerA').value;
+  var by = supBy();
+  if (!by) { alert('Entered By naam daalo'); return; }
+  if (qty < 1) { alert('Qty daalo'); return; }
+  if (qty > pl.pending) { alert('Is plan me sirf ' + pl.pending + ' pending hai'); return; }
+  if (qty > pl.available) { alert(pl.model + ' ke sirf ' + pl.available + ' serial bache hain — pehle labels generate karo'); return; }
+  if (!confirm(pl.planId + ' (' + pl.model + ') — ' + qty + ' battery Complete mark karein?')) return;
+
+  state.sup.busy = true;
+  var btn = document.getElementById('supBulkBtn');
+  var left = qty, doneAll = [], skippedAll = [];
+
+  function finish(err) {
+    state.sup.busy = false;
+    var m = doneAll.length + ' battery Complete ho gayi.';
+    if (skippedAll.length) m += '\n\nSkip hui:\n' + skippedAll.join('\n');
+    if (err) m += '\n\nRuk gaya: ' + err.message;
+    alert(m);
+    if (err && /login|session/i.test(err.message)) { supLogout(); return; }
+    state.sup.loaded = false;
+    renderContentOnly();
+  }
+
+  function next() {
+    if (left <= 0) { finish(); return; }
+    var n = Math.min(10, left);
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving... ' + doneAll.length + '/' + qty; }
+    call('manualComplete', {
+      token: state.sup.token, planId: pl.planId, qty: n, enteredBy: by, workerId: worker
+    }).then(function (res) {
+      doneAll = doneAll.concat(res.completed || []);
+      skippedAll = skippedAll.concat(res.skipped || []);
+      left -= n;
+      if ((res.skipped || []).length) left = 0;      // hall set nahi to aage mat badho
+      next();
+    }, function (err) { finish(err); });
+  }
+  next();
+}
+
+/* Mode B — ek serial, ek station */
+function supSerial() {
+  var serial = document.getElementById('supSerial').value.trim();
+  var station = document.getElementById('supStation').value;
+  var worker = document.getElementById('supWorkerB').value;
+  var by = supBy();
+  if (!by) { alert('Entered By naam daalo'); return; }
+  if (!serial || !station || !worker) { alert('Serial, Station aur Worker teeno chahiye'); return; }
+  call('manualScan', {
+    token: state.sup.token, serial: serial, station: station, workerId: worker, enteredBy: by
+  }).then(function () {
+    alert('Saved: ' + serial + ' @ ' + station);
+    state.sup.loaded = false;
+    renderContentOnly();
+  }, supErr);
+}
+
+function supUndo(serial) {
+  var by = supBy();
+  if (!by) { alert('Entered By naam daalo'); return; }
+  if (!confirm('Undo Complete: ' + serial + ' ?\nBattery wapas "In progress" ho jayegi.')) return;
+  call('undoComplete', { token: state.sup.token, serial: serial, enteredBy: by })
+    .then(function () { state.sup.loaded = false; renderContentOnly(); }, supErr);
+}
+
+function renderManual() {
+  var s = state.sup;
+
+  if (!s.token) {
+    return '<div class="panel" style="max-width:420px;"><div class="panel-title">Supervisor login</div>' +
+      '<p style="color:var(--text-muted);font-size:13.5px;margin-top:-6px;">Manual Entry sirf supervisor ke liye hai.</p>' +
+      '<div class="field"><label>Supervisor PIN</label>' +
+      '<input id="supPin" type="password" onkeydown="if(event.key===\'Enter\')supLogin()"></div>' +
+      '<div style="margin-top:10px;"><button class="btn" onclick="supLogin()">Login</button></div></div>';
+  }
+
+  if (!s.loaded) { setTimeout(supLoad, 10); return '<div class="empty">Loading plans...</div>'; }
+
+  var workerOpts = function (optional) {
+    return '<option value="">' + (optional ? '-- (optional) --' : '-- worker chuno --') + '</option>' +
+      state.staff.map(function (w) {
+        return '<option value="' + esc(w.id) + '">' + esc(w.name) + ' (' + esc(w.id) + ')' +
+               (w.hall ? ' · ' + esc(w.hall) : '') + '</option>';
+      }).join('');
+  };
+  var stationOpts = '<option value="">-- station chuno --</option>' + state.stationRows.map(function (r) {
+    return '<option value="' + esc(r.name) + '">' + esc(r.name) + (r.hall ? ' · ' + esc(r.hall) : '') +
+           (r.complete ? ' (Complete)' : '') + '</option>';
+  }).join('');
+
+  var top = '<div class="panel"><div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">' +
+    '<div class="field" style="min-width:220px;"><label>Entered By (aapka naam)</label>' +
+    '<input id="supBy" value="' + esc(supByVal()) + '" placeholder="Supervisor naam"></div>' +
+    '<button class="btn secondary" onclick="supRefresh()">Refresh</button>' +
+    '<button class="btn secondary" onclick="supLogout()">Logout</button></div></div>';
+
+  // Mode A
+  var planRows = s.plans.map(function (p) {
+    var on = s.pick === p.planId;
+    return '<tr style="cursor:pointer;' + (on ? 'background:rgba(99,102,241,.10);' : '') + '" ' +
+      'data-p="' + esc(p.planId) + '" onclick="supPickPlan(this.dataset.p)">' +
+      '<td><input type="radio"' + (on ? ' checked' : '') + '></td>' +
+      '<td class="mono">' + esc(p.planId) + '</td><td>' + esc(p.date) + '</td>' +
+      '<td class="mono">' + esc(p.orderId) + '</td><td>' + esc(p.customer) + '</td>' +
+      '<td>' + esc(p.model) + '</td><td class="mono">' + p.planned + '</td>' +
+      '<td class="mono">' + p.done + '</td><td class="mono"><b>' + p.pending + '</b></td>' +
+      '<td class="mono"' + (p.available < p.pending ? ' style="color:var(--danger);"' : '') + '>' + p.available + '</td></tr>';
+  }).join('');
+
+  var modeA = '<div class="panel"><div class="panel-title">A · Bulk Complete (plan-wise)</div>' +
+    (s.warn ? '<div style="color:var(--danger);font-size:13px;margin-bottom:8px;">⚠ ' + esc(s.warn) + '</div>' : '') +
+    (s.plans.length
+      ? '<div class="table-wrap"><table><thead><tr><th></th><th>Plan</th><th>Date</th><th>Order</th><th>Customer</th>' +
+        '<th>Model</th><th>Planned</th><th>Done</th><th>Pending</th><th>Serial bache</th></tr></thead><tbody>' +
+        planRows + '</tbody></table></div>'
+      : '<div class="empty">Koi pending plan nahi.</div>') +
+    '<div class="row" style="margin-top:12px;max-width:640px;">' +
+      '<div class="field"><label>Kitni bani</label><input id="supQty" type="number" min="1" value="1"></div>' +
+      '<div class="field"><label>Worker</label><select id="supWorkerA">' + workerOpts(true) + '</select></div>' +
+    '</div>' +
+    '<div style="margin-top:10px;"><button class="btn" id="supBulkBtn" onclick="supBulk()"' +
+      (s.pick ? '' : ' disabled') + '>Complete mark karo</button></div>' +
+    '<p style="font-size:12px;color:var(--text-muted);margin:10px 0 0;">Us plan ke model ke sabse purane bache serials ' +
+    'Complete honge aur plan se jud jayenge. "Serial bache" kam ho to pehle Battery Labels se generate karo.</p></div>';
+
+  // Mode B
+  var modeB = '<div class="panel"><div class="panel-title">B · Serial-wise (scan miss ho gaya ho)</div>' +
+    '<div class="row" style="max-width:860px;">' +
+      '<div class="field"><label>Serial</label><input id="supSerial" placeholder="LP-6040-00001"></div>' +
+      '<div class="field"><label>Station</label><select id="supStation">' + stationOpts + '</select></div>' +
+      '<div class="field"><label>Worker</label><select id="supWorkerB">' + workerOpts(false) + '</select></div>' +
+    '</div>' +
+    '<div style="margin-top:10px;"><button class="btn" onclick="supSerial()">Save</button></div></div>';
+
+  // Aaj ke Completions
+  var todayRows = s.today.map(function (r) {
+    var src = r.source === 'Manual' ? '<span class="badge pending">Manual</span>' : '<span class="badge pass">Scanner</span>';
+    var st = r.status === 'Active' ? '<span class="badge pass">Active</span>' : '<span class="badge fail">' + esc(r.status) + '</span>';
+    var act = r.status === 'Active'
+      ? '<button class="icon-btn danger" data-s="' + esc(r.serial) + '" onclick="supUndo(this.dataset.s)">Undo</button>' : '';
+    return '<tr><td class="mono">' + esc(r.time) + '</td><td class="mono">' + esc(r.serial) + '</td>' +
+      '<td>' + esc(r.model) + '</td><td class="mono">' + esc(r.planId || '—') + '</td>' +
+      '<td class="mono">' + esc(r.orderId || '—') + '</td><td>' + src + '</td><td>' + esc(r.by || '—') + '</td>' +
+      '<td>' + st + '</td><td>' + act + '</td></tr>';
+  }).join('');
+
+  var today = '<div class="panel"><div class="panel-title">Aaj complete hui batteries (' + s.today.length + ')</div>' +
+    (s.today.length
+      ? '<div class="table-wrap"><table><thead><tr><th>Time</th><th>Serial</th><th>Model</th><th>Plan</th>' +
+        '<th>Order</th><th>Source</th><th>Entered By</th><th>Status</th><th></th></tr></thead><tbody>' +
+        todayRows + '</tbody></table></div>'
+      : '<div class="empty">Aaj abhi koi battery complete nahi hui.</div>') + '</div>';
+
+  return top + modeA + modeB + today;
+}
+
 /* ---------------- Shell ---------------- */
 
 function renderTabs() {
   var el = document.getElementById('tabs');
   if (!state.unlocked) { el.innerHTML = ''; return; }
   var tabs = [['dashboard', 'Dashboard'], ['employees', 'Employees'], ['labels', 'Battery Labels'],
-              ['setup', 'Setup'], ['cards', 'Print Cards']];
+              ['manual', 'Manual Entry'], ['setup', 'Setup'], ['cards', 'Print Cards']];
   el.innerHTML = tabs.map(function (t) {
     return '<button class="tab ' + (state.tab === t[0] ? 'active' : '') + '" onclick="setTab(\'' + t[0] + '\')">' + t[1] + '</button>';
   }).join('');
@@ -866,6 +1096,7 @@ function renderContentOnly() {
   else if (state.tab === 'setup') c.innerHTML = renderSetup();
   else if (state.tab === 'labels') { c.innerHTML = renderLabels(); setTimeout(drawLabels, 30); }
   else if (state.tab === 'cards') { c.innerHTML = renderCards(); setTimeout(drawBarcodes, 30); }
+  else if (state.tab === 'manual') c.innerHTML = renderManual();
 }
 
 function render() {
