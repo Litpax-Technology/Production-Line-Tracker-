@@ -855,7 +855,13 @@ function drawLabels() {
 
 /* ---------------- Manual Entry (Task 0) ---------------- */
 
-state.sup = { token: '', plans: [], warn: '', today: [], pick: '', loaded: false, loading: false, busy: false };
+state.sup = { token: '', plans: [], warn: '', today: [], pick: '', loaded: false, loading: false, busy: false, date: supToday() };
+
+function supToday() {
+  var d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function supSetDate(v) { state.sup.date = v || supToday(); state.sup.pick = ''; state.sup.loaded = false; renderContentOnly(); }
 try { state.sup.token = sessionStorage.getItem('plt_sup') || ''; } catch (e) {}
 
 function supByVal() { try { return localStorage.getItem('plt_sup_by') || ''; } catch (e) { return ''; } }
@@ -893,7 +899,7 @@ function supLogin() {
 function supLoad() {
   if (!state.sup.token || state.sup.loading) return;
   state.sup.loading = true;
-  call('pendingPlans', { token: state.sup.token }).then(function (r1) {
+  call('pendingPlans', { token: state.sup.token, date: state.sup.date }).then(function (r1) {
     state.sup.plans = r1.plans || [];
     state.sup.warn = r1.warn || '';
     return call('todayCompletions', { token: state.sup.token });
@@ -1007,6 +1013,8 @@ function renderManual() {
   }).join('');
 
   var top = '<div class="panel"><div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">' +
+    '<div class="field"><label>Plan Date</label>' +
+    '<input type="date" value="' + esc(s.date) + '" onchange="supSetDate(this.value)"></div>' +
     '<div class="field" style="min-width:220px;"><label>Entered By (aapka naam)</label>' +
     '<input id="supBy" value="' + esc(supByVal()) + '" placeholder="Supervisor naam"></div>' +
     '<button class="btn secondary" onclick="supRefresh()">Refresh</button>' +
@@ -1015,6 +1023,14 @@ function renderManual() {
   // Mode A
   var planRows = s.plans.map(function (p) {
     var on = s.pick === p.planId;
+    if (p.pending <= 0) {
+      return '<tr style="opacity:.55;">' +
+        '<td><span class="badge pass">✓ Done</span></td>' +
+        '<td class="mono">' + esc(p.planId) + '</td><td>' + esc(p.date) + '</td>' +
+        '<td class="mono">' + esc(p.orderId) + '</td><td>' + esc(p.customer) + '</td>' +
+        '<td>' + esc(p.model) + '</td><td class="mono">' + p.planned + '</td>' +
+        '<td class="mono">' + p.done + '</td><td class="mono">0</td><td class="mono">—</td></tr>';
+    }
     return '<tr style="cursor:pointer;' + (on ? 'background:rgba(99,102,241,.10);' : '') + '" ' +
       'data-p="' + esc(p.planId) + '" onclick="supPickPlan(this.dataset.p)">' +
       '<td><input type="radio"' + (on ? ' checked' : '') + '></td>' +
@@ -1031,7 +1047,7 @@ function renderManual() {
       ? '<div class="table-wrap"><table><thead><tr><th></th><th>Plan</th><th>Date</th><th>Order</th><th>Customer</th>' +
         '<th>Model</th><th>Planned</th><th>Done</th><th>Pending</th><th>Serial bache</th></tr></thead><tbody>' +
         planRows + '</tbody></table></div>'
-      : '<div class="empty">Koi pending plan nahi.</div>') +
+      : '<div class="empty">Is date (' + esc(s.date) + ') ki ERP me koi Planned Slip nahi hai.</div>') +
     '<div class="row" style="margin-top:12px;max-width:640px;">' +
       '<div class="field"><label>Kitni bani</label><input id="supQty" type="number" min="1" value="1"></div>' +
       '<div class="field"><label>Worker</label><select id="supWorkerA">' + workerOpts(true) + '</select></div>' +
