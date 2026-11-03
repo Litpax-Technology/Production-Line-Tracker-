@@ -555,25 +555,27 @@ function updatePrintCount() {
 
 function printSelected() {
   if (!countSelected()) { alert('Nothing selected. Tick at least one card to print.'); return; }
-  // Sirf ticked cards ko alag box me copy karo; baaki page print me display:none
-  var box = document.createElement('div');
-  box.id = 'printOnly';
+  var html = '';
   document.querySelectorAll('#printArea .print-card:not(.unselected)').forEach(function (c) {
     var k = c.cloneNode(true);
-    k.removeAttribute('id');
     var chk = k.querySelector('.card-check');
     if (chk) chk.parentNode.removeChild(chk);
-    box.appendChild(k);
+    html += '<div class="c">' + k.innerHTML + '</div>';
   });
-  document.body.appendChild(box);
-  document.body.classList.add('print-only');
-  var done = function () {
-    document.body.classList.remove('print-only');
-    if (box.parentNode) box.parentNode.removeChild(box);
-    window.removeEventListener('afterprint', done);
-  };
-  window.addEventListener('afterprint', done);
-  setTimeout(function () { window.print(); }, 50);
+  var w = window.open('', '_blank');
+  if (!w) { alert('Popup block ho gaya. Browser me is site ke popups allow karo.'); return; }
+  w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Print Cards</title><style>' +
+    '@page{size:A4;margin:8mm}' +
+    'body{margin:0;font-family:Arial,sans-serif;color:#000}' +
+    '.g{display:flex;flex-wrap:wrap;gap:4mm}' +
+    '.c{width:86mm;height:54mm;box-sizing:border-box;border:1px dashed #999;padding:3mm;text-align:center;' +
+      'display:flex;flex-direction:column;justify-content:center;break-inside:avoid;page-break-inside:avoid}' +
+    '.c .label{font-weight:700;font-size:13pt;margin-bottom:2mm}' +
+    '.c svg{width:100%;height:24mm}' +
+    '.c .sub{font-family:monospace;font-size:10pt;margin-top:1mm}' +
+    '</style></head><body><div class="g">' + html + '</div></body></html>');
+  w.document.close();
+  setTimeout(function () { w.focus(); w.print(); w.close(); }, 400);
 }
 
 function renderCards() {
