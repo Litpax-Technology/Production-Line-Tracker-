@@ -351,19 +351,4 @@ body:has(.tabs) .range-bar{background:var(--surface);border:1px solid var(--bord
 body:has(.tabs) .range-btn{border:none;background:transparent;box-shadow:none;}
 body:has(.tabs) .range-btn.active{box-shadow:0 2px 8px rgba(99,91,255,.28);}
 
-/* Print Cards: sirf ticked badges/cards */
-#printOnly { display: none; }
-@media print {
-  body.print-only > *:not(#printOnly) { display: none !important; }
-  body.print-only #printOnly {
-    display: flex !important; flex-wrap: wrap; gap: 4mm;
-    position: static !important; margin: 0; padding: 0;
-  }
-  body.print-only #printOnly,
-  body.print-only #printOnly * { visibility: visible !important; }
-  body.print-only #printOnly .print-card {
-    break-inside: avoid; page-break-inside: avoid;
-    border: 1px dashed #999; box-shadow: none;
-  }
-  body.print-only #printOnly .print-card svg { max-width: 100%; height: auto; }
-}
+
