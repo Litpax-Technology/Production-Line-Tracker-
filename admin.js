@@ -687,8 +687,6 @@ function generateSerials() {
   var bmsOpt = bmsEl && !bmsEl.disabled ? bmsEl.value : '';
   if (!hall) { alert('Pehle hall chuno.'); return; }
   if (!model) { alert('Pehle model chuno.'); return; }
-  if (!cellOpt) { alert('Is model ka cell Master BOM me nahi hai. Pehle Master me daalo.'); return; }
-  if (!bmsOpt) { alert('Is model ka BMS Master BOM me nahi hai. Pehle Master me daalo.'); return; }
   if (!qty || qty < 1) { alert('Enter how many batteries you need labels for.'); return; }
   if (qty > 200) { alert('Maximum 200 at a time.'); return; }
 
@@ -713,6 +711,7 @@ function loadReprint() {
   if (!list.length) { alert('Paste at least one serial number.'); return; }
   if (list.length > 200) { alert('Maximum 200 at a time.'); return; }
   state.labels = list;
+  state.labelModel = '';      // reprint me model pata nahi — LITPAX chhapega, galat model nahi
   renderContentOnly();
 }
 
@@ -802,7 +801,7 @@ function renderLabels() {
   return head +
     '<div class="panel"><div class="panel-title">' + state.labels.length + ' label(s) ready &middot; ' + w + ' x ' + h + ' mm</div>' +
     '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
-      '<button class="btn" onclick="window.print()">Print labels</button>' +
+      '<button class="btn" id="printLblBtn" onclick="window.print()" disabled>QR ban rahe hain...</button>' +
       '<button class="btn secondary" onclick="copySerials()">Copy serials</button>' +
       '<button class="btn secondary" onclick="clearLabels()">Clear</button>' +
     '</div>' +
@@ -850,6 +849,8 @@ function drawLabels() {
         cell.innerHTML = q.createSvgTag({ scalable: true, margin: 0 });
       } catch (e) { cell.textContent = sn; }
     });
+    var pb = document.getElementById('printLblBtn');
+    if (pb) { pb.disabled = false; pb.textContent = 'Print labels'; }
   });
 }
 
