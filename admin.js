@@ -555,7 +555,25 @@ function updatePrintCount() {
 
 function printSelected() {
   if (!countSelected()) { alert('Nothing selected. Tick at least one card to print.'); return; }
-  window.print();
+  // Sirf ticked cards ko alag box me copy karo; baaki page print me display:none
+  var box = document.createElement('div');
+  box.id = 'printOnly';
+  document.querySelectorAll('#printArea .print-card:not(.unselected)').forEach(function (c) {
+    var k = c.cloneNode(true);
+    k.removeAttribute('id');
+    var chk = k.querySelector('.card-check');
+    if (chk) chk.parentNode.removeChild(chk);
+    box.appendChild(k);
+  });
+  document.body.appendChild(box);
+  document.body.classList.add('print-only');
+  var done = function () {
+    document.body.classList.remove('print-only');
+    if (box.parentNode) box.parentNode.removeChild(box);
+    window.removeEventListener('afterprint', done);
+  };
+  window.addEventListener('afterprint', done);
+  setTimeout(function () { window.print(); }, 50);
 }
 
 function renderCards() {
