@@ -1020,14 +1020,6 @@ function supUndo(serial) {
 function renderManual() {
   var s = state.sup;
 
-  if (!s.token) {
-    return '<div class="panel" style="max-width:420px;"><div class="panel-title">Supervisor login</div>' +
-      '<p style="color:var(--text-muted);font-size:13.5px;margin-top:-6px;">Manual Entry sirf supervisor ke liye hai.</p>' +
-      '<div class="field"><label>Supervisor PIN</label>' +
-      '<input id="supPin" type="password" onkeydown="if(event.key===\'Enter\')supLogin()"></div>' +
-      '<div style="margin-top:10px;"><button class="btn" onclick="supLogin()">Login</button></div></div>';
-  }
-
   if (!s.loaded) { setTimeout(supLoad, 10); return '<div class="empty">Loading plans...</div>'; }
 
   var workerOpts = function (optional) {
@@ -1047,8 +1039,7 @@ function renderManual() {
     '<input type="date" value="' + esc(s.date) + '" onchange="supSetDate(this.value)"></div>' +
     '<div class="field" style="min-width:220px;"><label>Entered By (aapka naam)</label>' +
     '<input id="supBy" value="' + esc(supByVal()) + '" placeholder="Supervisor naam"></div>' +
-    '<button class="btn secondary" onclick="supRefresh()">Refresh</button>' +
-    '<button class="btn secondary" onclick="supLogout()">Logout</button></div></div>';
+    '<button class="btn secondary" onclick="supRefresh()">Refresh</button></div></div>';
 
   // Mode A
   var planRows = s.plans.map(function (p) {
