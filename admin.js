@@ -1106,7 +1106,96 @@ function renderManual() {
         todayRows + '</tbody></table></div>'
       : '<div class="empty">Aaj abhi koi battery complete nahi hui.</div>') + '</div>';
 
-  return top + modeA + modeB + today;
+  return top + renderOpening() + modeA + modeB + today;
+}
+
+/* ---------- Opening Stock (aaj ka maal: serial + stage) ---------- */
+
+function opLower(s) { return String(s || '').trim().toLowerCase(); }
+function opSet(k, v) {
+  supBy();                                   // Entered By save rahe
+  state.sup[k] = v;
+  if (k === 'opHall') state.sup.opModel = '';
+  renderContentOnly();
+}
+/** Hall ke stations, Complete (FG) station tak. */
+function opStages(hall) {
+  var out = ['Not started'];
+  var rows = state.stationRows.filter(function (r) { return r.hall === hall; });
+  for (var i = 0; i < rows.length; i++) { out.push(rows[i].name); if (rows[i].complete) break; }
+  return out;
+}
+function opModels(hall) {
+  var cats = (CONFIG.HALL_CATEGORIES && CONFIG.HALL_CATEGORIES[hall]) || [hall];
+  var keys = cats.map(opLower);
+  return state.models.filter(function (m) { return keys.indexOf(opLower(m.category)) >= 0; });
+}
+
+function supOpening() {
+  if (state.sup.busy) return;
+  var hall = state.sup.opHall || '', model = state.sup.opModel || '';
+  var stage = document.getElementById('opStage').value;
+  var qty = parseInt(document.getElementById('opQty').value, 10) || 0;
+  var by = supBy();
+  if (!by) { alert('Entered By naam daalo'); return; }
+  if (!hall || !model || !stage) { alert('Hall, model aur stage chuno'); return; }
+  if (qty < 1 || qty > 200) { alert('Qty 1 se 200 tak'); return; }
+  if (!confirm(hall + ' · ' + model + ' · ' + stage + ' · ' + qty + ' battery ka opening stock daalein?\n' +
+               'Naye serial banenge, unke labels chipkane honge.')) return;
+
+  state.sup.busy = true;
+  var btn = document.getElementById('opBtn');
+  var left = qty, all = [], mName = '';
+
+  function finish(err) {
+    state.sup.busy = false;
+    if (all.length) { state.labels = all; state.labelModel = mName; }
+    var msg = all.length + ' battery opening stock me aa gayi (' + stage + ').';
+    if (err) msg += '\n\nRuk gaya: ' + err.message;
+    alert(msg);
+    if (err && /login|session/i.test(err.message)) { supLogout(); return; }
+    if (all.length && confirm('In ' + all.length + ' serials ke labels abhi print karne hain?')) { setTab('labels'); return; }
+    state.sup.loaded = false;
+    renderContentOnly();
+  }
+  function next() {
+    if (left <= 0) { finish(); return; }
+    var n = Math.min(20, left);
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving... ' + all.length + '/' + qty; }
+    call('openingStock', { token: state.sup.token, hall: hall, model: model, stage: stage, qty: n, enteredBy: by })
+      .then(function (res) { all = all.concat(res.serials || []); mName = res.model || mName; left -= n; next(); },
+            function (err) { finish(err); });
+  }
+  next();
+}
+
+function renderOpening() {
+  var s = state.sup, hall = s.opHall || '';
+  var hallNames = CONFIG.HALL_CATEGORIES ? Object.keys(CONFIG.HALL_CATEGORIES) : state.halls;
+  var hallOpts = '<option value="">-- hall --</option>' + hallNames.map(function (h) {
+    return '<option value="' + esc(h) + '"' + (hall === h ? ' selected' : '') + '>' + esc(h) + '</option>';
+  }).join('');
+  var models = hall ? opModels(hall) : [];
+  var modelOpts = '<option value="">' + (hall ? '-- model --' : '-- pehle hall --') + '</option>' + models.map(function (m) {
+    return '<option value="' + esc(m.code) + '"' + (s.opModel === m.code ? ' selected' : '') + '>' + esc(m.name) + '</option>';
+  }).join('');
+  var stages = hall ? opStages(hall) : [];
+  var fgSt = stages.length > 1 ? stages[stages.length - 1] : '';
+  var stageOpts = stages.map(function (st) {
+    return '<option value="' + esc(st) + '"' + (st === fgSt ? ' selected' : '') + '>' + esc(st) +
+           (st === fgSt ? ' (Finished goods)' : '') + '</option>';
+  }).join('');
+
+  return '<div class="panel"><div class="panel-title">Opening Stock (ek baar)</div>' +
+    '<p style="color:var(--text-muted);font-size:13.5px;margin-top:-6px;">Aaj jo maal padha hai use daalo: hall, model, kis stage pe hai, kitni. ' +
+    'Naye serial banenge aur us stage pe mark ho jayenge. Phir labels print karke batteries pe chipkao, taaki Dispatch pe scan ho sakein.</p>' +
+    '<div class="row" style="max-width:960px;">' +
+      '<div class="field"><label>Hall</label><select onchange="opSet(\'opHall\', this.value)">' + hallOpts + '</select></div>' +
+      '<div class="field"><label>Model</label><select onchange="opSet(\'opModel\', this.value)">' + modelOpts + '</select></div>' +
+      '<div class="field"><label>Stage</label><select id="opStage">' + stageOpts + '</select></div>' +
+      '<div class="field"><label>Kitni</label><input id="opQty" type="number" min="1" max="200" value="1"></div>' +
+    '</div>' +
+    '<div style="margin-top:10px;"><button class="btn" id="opBtn" onclick="supOpening()">Opening stock daalo</button></div></div>';
 }
 
 /* ---------------- Shell ---------------- */
