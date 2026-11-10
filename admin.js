@@ -60,6 +60,7 @@ function refreshAll() {
 function setTab(t) {
   state.tab = t; state.expandedPack = null; state.expandedEmp = null;
   if (t === 'manual' && state.sup) state.sup.loaded = false;
+  if (t === 'stock') state.stk.loaded = false;
   render();
 }
 function setSearch(v) { state.search = v; renderContentOnly(); }
@@ -1206,12 +1207,158 @@ function renderOpening() {
     '<div style="margin-top:10px;"><button class="btn" id="opBtn" onclick="supOpening()">Opening stock daalo</button></div></div>';
 }
 
+/* ---------------- Stock (WIP / Production / Dispatch / FG) ---------------- */
+
+state.stk = { range: 'today', from: '', to: '', hall: '', data: null, open: null, loaded: false, loading: false, err: '' };
+
+function stkYmd(d) {
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function stkDates() {
+  var s = state.stk, t = new Date(); t.setHours(0, 0, 0, 0);
+  if (s.range === 'custom') return { from: s.from || stkYmd(t), to: s.to || stkYmd(t) };
+  var f = new Date(t);
+  if (s.range === 'week') f.setDate(f.getDate() - 6);
+  if (s.range === 'month') f = new Date(t.getFullYear(), t.getMonth(), 1);
+  return { from: stkYmd(f), to: stkYmd(t) };
+}
+function stkLoad() {
+  var s = state.stk;
+  if (s.loading) return;
+  s.loading = true;
+  var r = stkDates();
+  call('stockSummary', { from: r.from, to: r.to }).then(function (res) {
+    s.data = res; s.loaded = true; s.loading = false; s.err = '';
+    if (!s.hall && res.halls && res.halls.length) s.hall = res.halls[0].hall;
+    if (state.tab === 'stock') renderContentOnly();
+  }, function (err) {
+    s.loaded = true; s.loading = false; s.err = err.message;
+    if (state.tab === 'stock') renderContentOnly();
+  });
+}
+function stkRange(r) { state.stk.range = r; state.stk.open = null; stkLoad(); }
+function stkFrom(v) { state.stk.from = v; state.stk.range = 'custom'; stkLoad(); }
+function stkTo(v) { state.stk.to = v; state.stk.range = 'custom'; stkLoad(); }
+function stkHall(h) { state.stk.hall = h; state.stk.open = null; renderContentOnly(); }
+function stkBox(k) { state.stk.open = state.stk.open === k ? null : k; renderContentOnly(); }
+function stkTot(models, f) { return models.reduce(function (a, m) { return a + f(m); }, 0); }
+
+function stkCards(models) {
+  var card = function (n, l, cls) {
+    return '<div class="stat-card ' + (cls || '') + '"><div class="num">' + n + '</div><div class="lbl">' + l + '</div></div>';
+  };
+  return '<div class="stat-grid">' +
+    card(stkTot(models, function (m) { return m.wipTotal; }), 'WIP (abhi line pe)') +
+    card(stkTot(models, function (m) { return m.prod; }), 'Production (is period)') +
+    card(stkTot(models, function (m) { return m.disp; }), 'Dispatch (is period)') +
+    card(stkTot(models, function (m) { return m.fg; }), 'Finished goods (abhi)', 'stock-fg') +
+    '</div>';
+}
+
+function stkPipeline(h) {
+  var s = state.stk;
+  var boxes = h.stages.map(function (st) {
+    return { key: st, label: st, n: stkTot(h.models, function (m) { return m.wip[st] || 0; }), cls: '' };
+  });
+  boxes.push({ key: '__fg', label: (h.prodStage || 'Production') + ' · FG', n: stkTot(h.models, function (m) { return m.fg; }), cls: 'fg' });
+  boxes.push({ key: '__disp', label: (h.dispatchStage || 'Dispatch') + ' · period', n: stkTot(h.models, function (m) { return m.disp; }), cls: 'disp' });
+  var html = boxes.map(function (b, i) {
+    return (i ? '<div class="pipe-arrow">&rsaquo;</div>' : '') +
+      '<button class="pipe-box ' + b.cls + (s.open === b.key ? ' on' : '') + (b.n ? '' : ' zero') +
+      '" data-k="' + esc(b.key) + '" onclick="stkBox(this.dataset.k)">' +
+      '<div class="pipe-n">' + b.n + '</div><div class="pipe-l">' + esc(b.label) + '</div></button>';
+  }).join('');
+  var note = h.prodStage ? '' :
+    '<p style="color:var(--bad);font-size:13px;">Is hall ka Complete station set nahi hai (Stations sheet, column D = TRUE).</p>';
+  return '<div class="panel"><div class="panel-title">' + esc(h.hall) + ' · stage-wise batteries</div>' + note +
+    '<div class="pipe">' + html + '</div>' +
+    '<p style="font-size:12px;color:var(--text-muted);margin:12px 0 0;">Har box = woh batteries jinka <b>last scan</b> us stage pe hua, ' +
+    'yaani agle stage pe abhi nahi pahunchi. Box pe click karo serial list ke liye.</p>' + stkList(h) + '</div>';
+}
+
+function stkList(h) {
+  var k = state.stk.open;
+  if (!k) return '';
+  var list = h.lists[k] || [];
+  var title = k === '__fg' ? 'Finished goods' : k === '__disp' ? 'Dispatch (is period)' : k;
+  if (!list.length) return '<div class="empty" style="margin-top:12px;">' + esc(title) + ': koi battery nahi.</div>';
+  var byM = {};
+  list.forEach(function (x) { byM[x.model] = (byM[x.model] || 0) + 1; });
+  var chips = Object.keys(byM).sort().map(function (m) { return '<span class="hall-tag">' + esc(m) + ': ' + byM[m] + '</span>'; }).join(' ');
+  var rows = list.map(function (x) {
+    return '<tr><td class="mono">' + esc(x.serial) + '</td><td>' + esc(x.model) + '</td><td class="mono">' + esc(x.at) + '</td></tr>';
+  }).join('');
+  return '<div class="history-detail" style="margin-top:12px;"><div style="margin-bottom:8px;"><b>' + esc(title) + '</b> &nbsp;' + chips + '</div>' +
+    '<div class="table-wrap"><table><thead><tr><th>Serial</th><th>Model</th><th>Last scan</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+    (list.length >= 300 ? '<p style="font-size:12px;color:var(--text-muted);">Pehli 300 dikh rahi hain.</p>' : '') + '</div>';
+}
+
+function stkTable(rows, withHall) {
+  if (!rows.length) return '<div class="empty">Koi battery nahi.</div>';
+  var body = rows.map(function (x) {
+    var m = x.m;
+    return '<tr>' + (withHall ? '<td>' + esc(x.hall) + '</td>' : '') + '<td>' + esc(m.model) + '</td>' +
+      '<td class="mono">' + m.wipTotal + '</td><td class="mono">' + m.prod + '</td><td class="mono">' + m.disp +
+      '</td><td class="mono"><b>' + m.fg + '</b></td></tr>';
+  }).join('');
+  var ms = rows.map(function (x) { return x.m; });
+  var foot = '<tr class="stock-total">' + (withHall ? '<td></td>' : '') + '<td>Total</td>' +
+    '<td class="mono">' + stkTot(ms, function (m) { return m.wipTotal; }) + '</td>' +
+    '<td class="mono">' + stkTot(ms, function (m) { return m.prod; }) + '</td>' +
+    '<td class="mono">' + stkTot(ms, function (m) { return m.disp; }) + '</td>' +
+    '<td class="mono"><b>' + stkTot(ms, function (m) { return m.fg; }) + '</b></td></tr>';
+  return '<div class="table-wrap"><table><thead><tr>' + (withHall ? '<th>Hall</th>' : '') +
+    '<th>Model</th><th>WIP</th><th>Production</th><th>Dispatch</th><th>Finished goods</th></tr></thead><tbody>' +
+    body + foot + '</tbody></table></div>';
+}
+
+function renderStock() {
+  var s = state.stk;
+  if (!s.loaded) { setTimeout(stkLoad, 10); return '<div class="empty">Stock load ho raha hai...</div>'; }
+  if (s.err && !s.data) {
+    return '<div class="panel"><div class="empty"><div class="big">Stock nahi aaya</div>' + esc(s.err) +
+      '<br><button class="btn secondary" style="margin-top:10px;" onclick="stkLoad()">Dobara try karo</button></div></div>';
+  }
+  var hs = (s.data && s.data.halls) || [];
+  var ranges = [['today', 'Aaj'], ['week', 'Last 7 din'], ['month', 'Is mahine'], ['custom', 'Custom']];
+  var bar = '<div class="range-bar">' + ranges.map(function (r) {
+    return '<button class="range-btn ' + (s.range === r[0] ? 'active' : '') + '" onclick="stkRange(\'' + r[0] + '\')">' + r[1] + '</button>';
+  }).join('') + '<button class="range-btn" onclick="stkLoad()">Refresh</button>' +
+    '<button class="range-btn" onclick="setTab(\'manual\')">+ Opening stock</button></div>';
+  var d = stkDates();
+  if (s.range === 'custom') {
+    bar += '<div class="row" style="max-width:420px;margin-bottom:14px;">' +
+      '<div class="field"><label>From</label><input type="date" value="' + esc(d.from) + '" onchange="stkFrom(this.value)"></div>' +
+      '<div class="field"><label>To</label><input type="date" value="' + esc(d.to) + '" onchange="stkTo(this.value)"></div></div>';
+  }
+  if (!hs.length) return bar + '<div class="panel"><div class="empty">Koi hall nahi mila. Stations sheet me Hall bharo.</div></div>';
+  bar += '<div class="range-bar">' + hs.map(function (h) {
+    return '<button class="range-btn ' + (s.hall === h.hall ? 'active' : '') + '" data-h="' + esc(h.hall) +
+           '" onclick="stkHall(this.dataset.h)">' + esc(h.hall) + '</button>';
+  }).join('') + '<button class="range-btn ' + (s.hall === '__all' ? 'active' : '') + '" onclick="stkHall(\'__all\')">Sab halls</button></div>';
+
+  var period = d.from === d.to ? d.from : d.from + ' se ' + d.to;
+  var info = '<p style="font-size:12px;color:var(--text-muted);margin:0 0 12px;">Production / Dispatch: <b>' + esc(period) +
+    '</b> &middot; WIP aur Finished goods: abhi ka live' +
+    (s.data.startDate ? ' &middot; ginti ' + esc(s.data.startDate) + ' se' : '') + '</p>';
+
+  if (s.hall === '__all') {
+    var rows = [], all = [];
+    hs.forEach(function (h) { h.models.forEach(function (m) { rows.push({ hall: h.hall, m: m }); all.push(m); }); });
+    return bar + info + stkCards(all) + '<div class="panel"><div class="panel-title">Hall + model wise</div>' + stkTable(rows, true) + '</div>';
+  }
+  var h = hs.filter(function (x) { return x.hall === s.hall; })[0] || hs[0];
+  return bar + info + stkCards(h.models) + stkPipeline(h) +
+    '<div class="panel"><div class="panel-title">' + esc(h.hall) + ' · model wise</div>' +
+    stkTable(h.models.map(function (m) { return { hall: h.hall, m: m }; }), false) + '</div>';
+}
+
 /* ---------------- Shell ---------------- */
 
 function renderTabs() {
   var el = document.getElementById('tabs');
   if (!state.unlocked) { el.innerHTML = ''; return; }
-  var tabs = [['dashboard', 'Dashboard'], ['employees', 'Employees'], ['labels', 'Battery Labels'],
+  var tabs = [['dashboard', 'Dashboard'], ['stock', 'Stock'], ['employees', 'Employees'], ['labels', 'Battery Labels'],
               ['manual', 'Manual Entry'], ['setup', 'Setup'], ['cards', 'Print Cards']];
   el.innerHTML = tabs.map(function (t) {
     return '<button class="tab ' + (state.tab === t[0] ? 'active' : '') + '" onclick="setTab(\'' + t[0] + '\')">' + t[1] + '</button>';
@@ -1231,6 +1378,7 @@ function renderContentOnly() {
   else if (state.tab === 'labels') { c.innerHTML = renderLabels(); setTimeout(drawLabels, 30); }
   else if (state.tab === 'cards') { c.innerHTML = renderCards(); setTimeout(drawBarcodes, 30); }
   else if (state.tab === 'manual') c.innerHTML = renderManual();
+  else if (state.tab === 'stock') c.innerHTML = renderStock();
 }
 
 function render() {
