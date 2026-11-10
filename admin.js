@@ -743,11 +743,17 @@ function renderLabels() {
   var selModel = null;
   state.models.forEach(function (m) { if (m.code === state.labelPick) selModel = m; });
 
-  // Hall list = PLT ke halls + Master ki categories
-  var hallList = state.halls.slice();
-  state.models.forEach(function (m) {
-    if (m.category && hallList.indexOf(m.category) < 0) hallList.push(m.category);
-  });
+  // Hall list = config.js ka HALL_CATEGORIES (na ho to purana tareeka)
+  var hallMap = CONFIG.HALL_CATEGORIES || null;
+  var hallList;
+  if (hallMap) {
+    hallList = Object.keys(hallMap);
+  } else {
+    hallList = state.halls.slice();
+    state.models.forEach(function (m) {
+      if (m.category && hallList.indexOf(m.category) < 0) hallList.push(m.category);
+    });
+  }
 
   var hallField = '';
   if (hallList.length) {
@@ -760,13 +766,15 @@ function renderLabels() {
 
   var modelField;
   if (state.models.length) {
-    var hk = String(state.labelHall || '').trim().toLowerCase();
+    var hk = String(state.labelHall || '').trim();
+    var cats = (hallMap && hallMap[hk]) ? hallMap[hk] : (hk ? [hk] : []);
+    var catKeys = cats.map(function (c) { return String(c).trim().toLowerCase(); });
     var shown = state.models.filter(function (m) {
-      return !hk || String(m.category || '').trim().toLowerCase() === hk;
+      return !catKeys.length || catKeys.indexOf(String(m.category || '').trim().toLowerCase()) >= 0;
     });
     var opts = '<option value="">-- pick a model --</option>' + shown.map(function (m) {
       return '<option value="' + esc(m.code) + '"' + (state.labelPick === m.code ? ' selected' : '') + '>' +
-             esc(m.name) + ' (' + esc(m.code) + ')</option>';
+             esc(m.name) + ' (' + esc(m.code) + ')' + (cats.length > 1 ? ' · ' + esc(m.category) : '') + '</option>';
     }).join('');
     modelField = hallField +
                  '<div class="field"><label>Model</label><select id="labelModel" onchange="setLabelModel(this.value)">' +
