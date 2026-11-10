@@ -19,6 +19,13 @@ var CONFIG = {
   // Warn if a pack is scanned out of station order (operator can override).
   ENFORCE_SEQUENCE: false,
 
+  // Labels page: kis hall mein Master Sheet ki kaunsi Category ke models bante hain
+  HALL_CATEGORIES: {
+    '2 Wheeler': ['2 Wheeler'],
+    'E-Cycle':   ['E-Cycle'],
+    'Prismatic': ['3 Wheeler', 'Inverter', 'Solar']
+  },
+
   // JSONP request timeout (ms).
   TIMEOUT_MS: 45000
 };
