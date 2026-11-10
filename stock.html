@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stock - Pack Line Tracker</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app" id="app">
+
+  <div class="header">
+    <div class="brand">
+      <div class="brand-mark">L</div>
+      <div>
+        <h1 data-fixed="1">Production Stock</h1>
+        <p>WIP · Production · Dispatch · Finished goods</p>
+      </div>
+    </div>
+    <div class="context-bar" id="contextBar"></div>
+  </div>
+
+  <div id="content"></div>
+
+  <div class="footer-note">
+    <span class="conn-dot" id="connDot"></span>
+    <span id="connText">Connecting...</span>
+  </div>
+
+</div>
+
+<script src="config.js"></script>
+<script src="common.js"></script>
+<script src="stock.js"></script>
+</body>
+</html>
