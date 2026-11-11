@@ -1156,6 +1156,7 @@ function supOpening() {
     if (err && /login|session/i.test(err.message)) { supLogout(); return; }
     if (all.length && confirm('In ' + all.length + ' serials ke labels abhi print karne hain?')) { setTab('labels'); return; }
     state.sup.loaded = false;
+   state.stk.loaded = false;
     renderContentOnly();
   }
   function next() {
