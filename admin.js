@@ -927,7 +927,7 @@ function supLogin() {
 }
 
 function supLoad() {
-  if (!state.sup.token || state.sup.loading) return;
+  if (state.sup.loading) return;
   state.sup.loading = true;
   call('pendingPlans', { token: state.sup.token, date: state.sup.date }).then(function (r1) {
     state.sup.plans = r1.plans || [];
