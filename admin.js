@@ -1106,7 +1106,7 @@ function renderManual() {
         todayRows + '</tbody></table></div>'
       : '<div class="empty">Aaj abhi koi battery complete nahi hui.</div>') + '</div>';
 
-  return top + renderOpening() + modeA + modeB + today;
+  return top + modeA + modeB + today;
 }
 
 /* ---------- Opening Stock (aaj ka maal: serial + stage) ---------- */
@@ -1190,6 +1190,7 @@ function renderOpening() {
     '<p style="color:var(--text-muted);font-size:13.5px;margin-top:-6px;">Aaj jo maal padha hai use daalo: hall, model, kis stage pe hai, kitni. ' +
     'Naye serial banenge aur us stage pe mark ho jayenge. Phir labels print karke batteries pe chipkao, taaki Dispatch pe scan ho sakein.</p>' +
     '<div class="row" style="max-width:960px;">' +
+      '<div class="field"><label>Entered By (aapka naam)</label><input id="supBy" value="' + esc(supByVal()) + '" placeholder="Naam"></div>' +
       '<div class="field"><label>Hall</label><select onchange="opSet(\'opHall\', this.value)">' + hallOpts + '</select></div>' +
       '<div class="field"><label>Model</label><select onchange="opSet(\'opModel\', this.value)">' + modelOpts + '</select></div>' +
       '<div class="field"><label>Stage</label><select id="opStage">' + stageOpts + '</select></div>' +
@@ -1232,6 +1233,7 @@ function stkFrom(v) { state.stk.from = v; state.stk.range = 'custom'; stkLoad();
 function stkTo(v) { state.stk.to = v; state.stk.range = 'custom'; stkLoad(); }
 function stkHall(h) { state.stk.hall = h; state.stk.open = null; renderContentOnly(); }
 function stkBox(k) { state.stk.open = state.stk.open === k ? null : k; renderContentOnly(); }
+function stkToggleOp() { state.stk.showOp = !state.stk.showOp; renderContentOnly(); }
 function stkTot(models, f) { return models.reduce(function (a, m) { return a + f(m); }, 0); }
 
 function stkCards(models) {
@@ -1315,7 +1317,8 @@ function renderStock() {
   var bar = '<div class="range-bar">' + ranges.map(function (r) {
     return '<button class="range-btn ' + (s.range === r[0] ? 'active' : '') + '" onclick="stkRange(\'' + r[0] + '\')">' + r[1] + '</button>';
   }).join('') + '<button class="range-btn" onclick="stkLoad()">Refresh</button>' +
-    '<button class="range-btn" onclick="setTab(\'manual\')">+ Opening stock</button></div>';
+    '<button class="range-btn' + (s.showOp ? ' active' : '') + '" onclick="stkToggleOp()">+ Opening stock</button></div>';
+  if (s.showOp) bar += renderOpening();
   var d = stkDates();
   if (s.range === 'custom') {
     bar += '<div class="row" style="max-width:420px;margin-bottom:14px;">' +
