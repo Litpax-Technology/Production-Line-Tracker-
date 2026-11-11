@@ -855,7 +855,7 @@ function drawLabels() {
   host.innerHTML = state.labels.map(function (sn, i) {
     return '<div class="battery-label" style="width:' + w + 'mm;height:' + h + 'mm;">' +
              '<div class="ql" id="ql' + i + '"></div>' +
-             '<div class="qt"><div class="qt-brand">' + esc(state.labelModel || 'LITPAX') + '</div>' +
+             '<div class="qt"><div class="qt-brand">' + esc((state.labelMap && state.labelMap[sn]) || state.labelModel || 'LITPAX') + '</div>' +
              '<div class="qt-serial">' + esc(sn) + '</div></div>' +
            '</div>';
   }).join('');
@@ -1200,6 +1200,153 @@ function renderOpening() {
     '<div style="margin-top:10px;"><button class="btn" id="opBtn" onclick="supOpening()">Opening stock daalo</button></div></div>';
 }
 
+/* ---------- Opening Stock: Bulk paste ---------- */
+
+function opHallNames() { return CONFIG.HALL_CATEGORIES ? Object.keys(CONFIG.HALL_CATEGORIES) : state.halls; }
+function opFindHall(t) {
+  var k = opLower(t).replace(/\s+/g, ''), hs = opHallNames();
+  if (k === '2w') k = '2wheeler';
+  for (var i = 0; i < hs.length; i++) if (opLower(hs[i]).replace(/\s+/g, '') === k) return hs[i];
+  return '';
+}
+/** "60V-32AH" ya short "60/32" dono chalenge. */
+function opFindModel(hall, t) {
+  var list = opModels(hall), k = opLower(t).replace(/\s+/g, '');
+  for (var i = 0; i < list.length; i++) {
+    if (opLower(list[i].name).replace(/\s+/g, '') === k || opLower(list[i].code) === k) return list[i];
+  }
+  var m = k.match(/^(\d+(?:\.\d+)?)v?\/(\d+(?:\.\d+)?)(?:ah)?$/);
+  if (!m) return null;
+  var hits = list.filter(function (x) {
+    var p = String(x.name).match(/^(\d+(?:\.\d+)?)V-(\d+(?:\.\d+)?)AH$/i);
+    return p && Math.floor(+p[1]) === Math.floor(+m[1]) && +p[2] === +m[2];
+  });
+  return hits.length === 1 ? hits[0] : null;
+}
+function opFindStage(hall, t) {
+  var st = opStages(hall), k = opLower(t);
+  if (/^(fg|finish(ed)? goods?)$/.test(k)) return st.length > 1 ? st[st.length - 1] : '';
+  for (var i = 0; i < st.length; i++) if (opLower(st[i]) === k) return st[i];
+  return '';
+}
+function opBulkParse() {
+  var rows = [];
+  String(state.sup.bulkText || '').split(/\r?\n/).forEach(function (line, i) {
+    if (!line.trim()) return;
+    var c = line.split(/\t|\||,/).map(function (x) { return x.trim(); });
+    var r = { line: i + 1, hall: '', model: null, stage: '', qty: 0, err: '' };
+    if (c.length < 4) { r.err = '4 cheezein chahiye: Hall | Model | Stage | Qty'; rows.push(r); return; }
+    r.hall = opFindHall(c[0]);
+    r.qty = parseInt(c[3], 10) || 0;
+    if (!r.hall) { r.err = 'Hall nahi mila: ' + c[0]; rows.push(r); return; }
+    r.model = opFindModel(r.hall, c[1]);
+    r.stage = opFindStage(r.hall, c[2]);
+    if (!r.model) r.err = 'Model nahi mila: ' + c[1];
+    else if (!r.stage) r.err = 'Stage nahi mila: ' + c[2];
+    else if (r.qty < 1 || r.qty > 500) r.err = 'Qty galat: ' + c[3];
+    rows.push(r);
+  });
+  return rows;
+}
+function opBulkInput(v) { state.sup.bulkText = v; }
+function opBulkCheck() { supBy(); state.sup.bulkRows = opBulkParse(); state.sup.bulkDone = null; renderContentOnly(); }
+
+function opBulkSave() {
+  var s = state.sup;
+  if (s.busy) return;
+  var by = supBy();
+  if (!by) { alert('Entered By naam daalo'); return; }
+  var rows = opBulkParse();
+  s.bulkRows = rows;
+  if (!rows.length) { alert('Pehle list paste karo'); return; }
+  if (rows.some(function (r) { return r.err; })) { renderContentOnly(); alert('Kuch line galat hain. Laal wali theek karke dobara try karo.'); return; }
+  var total = rows.reduce(function (a, r) { return a + r.qty; }, 0);
+  if (!confirm(rows.length + ' entries, kul ' + total + ' battery ka opening stock daalein?\nNaye serial banenge, sabke labels chipkane honge.')) return;
+
+  s.busy = true;
+  var serials = [], map = {}, done = [], ri = 0, left = rows[0].qty, cur = null, saved = 0;
+
+  function finish(err) {
+    s.busy = false;
+    s.bulkDone = done;
+    s.bulkRows = null;
+    if (serials.length) {
+      state.labels = serials; state.labelModel = '';
+      state.labelMap = state.labelMap || {};
+      Object.keys(map).forEach(function (k) { state.labelMap[k] = map[k]; });
+    }
+    if (err) {   // jo save nahi hua, sirf woh box me wapas
+      s.bulkText = rows.slice(ri).map(function (r, j) {
+        return [r.hall, r.model.name, r.stage, j === 0 ? left : r.qty].join(' | ');
+      }).join('\n');
+    } else {
+      s.bulkText = '';
+    }
+    var msg = saved + ' battery opening stock me aa gayi.';
+    if (err) msg += '\n\nRuk gaya: ' + err.message + '\nJo baaki hai woh box me wapas hai, dobara "Sab save karo" dabao.';
+    alert(msg);
+    if (serials.length && confirm('In ' + serials.length + ' serials ke labels abhi print karne hain?\n(Labels list ke order me, group-wise aayenge)')) { setTab('labels'); return; }
+    state.sup.loaded = false;
+    state.stk.loaded = false;
+    renderContentOnly();
+  }
+  function next() {
+    if (ri >= rows.length) { finish(); return; }
+    var r = rows[ri];
+    if (!cur) cur = { hall: r.hall, model: r.model.name, stage: r.stage, qty: 0, first: '', last: '' };
+    var n = Math.min(20, left);
+    var b = document.getElementById('opBulkBtn');
+    if (b) { b.disabled = true; b.textContent = 'Saving... ' + saved + '/' + total; }
+    call('openingStock', { token: s.token, hall: r.hall, model: r.model.code, stage: r.stage, qty: n, enteredBy: by })
+      .then(function (res) {
+        (res.serials || []).forEach(function (sn) {
+          serials.push(sn); map[sn] = res.model || r.model.name;
+          if (!cur.first) cur.first = sn;
+          cur.last = sn; cur.qty++;
+        });
+        saved += n; left -= n;
+        if (left <= 0) { done.push(cur); cur = null; ri++; left = ri < rows.length ? rows[ri].qty : 0; }
+        next();
+      }, function (err) { if (cur && cur.qty) done.push(cur); finish(err); });
+  }
+  next();
+}
+
+function renderBulk() {
+  var s = state.sup, rows = s.bulkRows || [];
+  var bad = rows.filter(function (r) { return r.err; }).length;
+  var total = rows.reduce(function (a, r) { return a + (r.err ? 0 : r.qty); }, 0);
+  var preview = rows.length
+    ? '<div class="table-wrap" style="margin-top:12px;"><table><thead><tr><th>Line</th><th>Hall</th><th>Model</th><th>Stage</th><th>Qty</th><th></th></tr></thead><tbody>' +
+      rows.map(function (r) {
+        return '<tr' + (r.err ? ' style="background:var(--bad-soft);"' : '') + '><td class="mono">' + r.line + '</td>' +
+          '<td>' + esc(r.hall) + '</td><td>' + esc(r.model ? r.model.name : '') + '</td><td>' + esc(r.stage) + '</td>' +
+          '<td class="mono">' + (r.qty || '') + '</td><td style="font-size:12px;color:var(--bad);">' + esc(r.err) + '</td></tr>';
+      }).join('') + '</tbody></table></div>' +
+      '<p style="font-size:13px;margin:10px 0 0;">' + (rows.length - bad) + ' line sahi &middot; <b>' + total + '</b> battery' +
+      (bad ? ' &middot; <span style="color:var(--bad);">' + bad + ' line galat, theek karke dobara Check karo</span>' : '') + '</p>'
+    : '';
+  var result = (s.bulkDone || []).length
+    ? '<div class="history-detail" style="margin-top:12px;"><b>Save ho gaya. Labels is order me print honge:</b>' +
+      '<div class="table-wrap" style="margin-top:8px;"><table><thead><tr><th>Hall</th><th>Model</th><th>Stage</th><th>Qty</th><th>Serial (pehla – aakhri)</th></tr></thead><tbody>' +
+      s.bulkDone.map(function (d) {
+        return '<tr><td>' + esc(d.hall) + '</td><td>' + esc(d.model) + '</td><td>' + esc(d.stage) + '</td><td class="mono">' + d.qty +
+          '</td><td class="mono">' + esc(d.first) + (d.last !== d.first ? ' – ' + esc(d.last) : '') + '</td></tr>';
+      }).join('') + '</tbody></table></div></div>'
+    : '';
+  var ph = '2 Wheeler | 60V-32AH | FG | 67\n2 Wheeler | 60/40 | Prepacking | 5\n2 Wheeler | 60/32 | Par | 22\nPrismatic | 60V-150AH | FG | 47';
+  return '<div class="panel"><div class="panel-title">Opening Stock · Bulk paste</div>' +
+    '<p style="color:var(--text-muted);font-size:13.5px;margin-top:-6px;">Har line: <b>Hall | Model | Stage | Qty</b>. ' +
+    'Model <b>60V-32AH</b> ya short <b>60/32</b> dono chalega. Stage me station ka naam, ya <b>FG</b> (Finished goods). ' +
+    'Excel se copy-paste bhi chalega (Tab se alag columns). Entered By upar wale form se liya jayega.</p>' +
+    '<textarea class="search-input" rows="8" style="font-family:var(--mono);" placeholder="' + esc(ph) + '" oninput="opBulkInput(this.value)">' +
+    esc(s.bulkText || '') + '</textarea>' +
+    '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">' +
+      '<button class="btn secondary" onclick="opBulkCheck()">Check karo</button>' +
+      '<button class="btn" id="opBulkBtn" onclick="opBulkSave()">Sab save karo</button>' +
+    '</div>' + preview + result + '</div>';
+}
+
 /* ---------------- Stock (WIP / Production / Dispatch / FG) ---------------- */
 
 state.stk = { range: 'today', from: '', to: '', hall: '', data: null, open: null, loaded: false, loading: false, err: '' };
@@ -1319,7 +1466,7 @@ function renderStock() {
     return '<button class="range-btn ' + (s.range === r[0] ? 'active' : '') + '" onclick="stkRange(\'' + r[0] + '\')">' + r[1] + '</button>';
   }).join('') + '<button class="range-btn" onclick="stkLoad()">Refresh</button>' +
     '<button class="range-btn' + (s.showOp ? ' active' : '') + '" onclick="stkToggleOp()">+ Opening stock</button></div>';
-  if (s.showOp) bar += renderOpening();
+  if (s.showOp) bar += renderOpening() + renderBulk();
   var d = stkDates();
   if (s.range === 'custom') {
     bar += '<div class="row" style="max-width:420px;margin-bottom:14px;">' +
