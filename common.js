@@ -86,12 +86,13 @@ function updateConn() {
   var dot = document.getElementById('connDot');
   var txt = document.getElementById('connText');
   if (!dot || !txt) return;
+  var q = (typeof outbox !== 'undefined' && outbox) ? outbox.length : 0;   // app.js ka unsent queue
   if (!state.connected) {
     dot.className = 'conn-dot off';
-    txt.textContent = 'Not connected - scans are held on this device';
-  } else if (state.pending > 0) {
+    txt.textContent = 'Not connected - scans are held on this device' + (q ? ' (' + q + ')' : '');
+  } else if (state.pending > 0 || q > 0) {
     dot.className = 'conn-dot busy';
-    txt.textContent = 'Saving to Sheet... (' + state.pending + ')';
+    txt.textContent = 'Saving to Sheet... (' + ((state.pending || 0) + q) + ')';
   } else {
     dot.className = 'conn-dot';
     txt.textContent = 'Connected - ' + (CONFIG.FLOOR || 'no floor set');
