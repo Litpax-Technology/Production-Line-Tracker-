@@ -364,3 +364,9 @@ body:has(.tabs) .range-btn.active{background:var(--accent);color:#fff;box-shadow
 .pipe-arrow{align-self:center;color:var(--text-faint);font-size:20px;}
 .stat-card.stock-fg .num{color:var(--ok);}
 .stock-total td{font-weight:700;background:var(--surface-2);}
+
+
+/* Scan banner (alert ki jagah) */
+.banner { padding: 10px 14px; border-radius: 8px; margin-bottom: 10px; font-size: 14px; font-weight: 600; }
+.banner.error { background: #fdecea; color: #b42318; border: 1px solid #f5c2bd; }
+.banner.warn  { background: #fff7e6; color: #8a5a00; border: 1px solid #f3d9a4; }
