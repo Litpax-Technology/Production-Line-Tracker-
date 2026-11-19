@@ -208,7 +208,136 @@ function sequenceWarning(packId, station) {
          '\nScanned at: ' + station + '\n\nLog it anyway?';
 }
 
+/* ---------------- Serial check ---------------- */
+
+/** Sirf asli battery serial ko pass karta hai (BMS QR / MAC / cell code ko nahi). Pattern config.js me. */
+function isValidSerial(code) {
+  if (!CONFIG.SERIAL_PATTERN) return true;
+  try { return new RegExp(CONFIG.SERIAL_PATTERN, 'i').test(code); } catch (e) { return true; }
+}
+
+/* ---------------- Banner (alert() ki jagah) ---------------- */
+
+function setBanner(kind, text) { state.banner = { kind: kind, text: text }; updateBanner(); }
+
+function updateBanner() {
+  var el = document.getElementById('bannerBox');
+  if (!el) return;
+  var html = '';
+  if (state.banner) html += '<div class="banner ' + state.banner.kind + '">' + esc(state.banner.text) + '</div>';
+  if (outbox.length) {
+    var age = Math.round((Date.now() - outbox[0].ts) / 1000);
+    if (age > 30) {
+      html += '<div class="banner error">' + outbox.length + ' scan abhi Sheet me save nahi hue (sabse purana ' + age +
+              ' sec). Scans is PC pe SAFE hain - net check karo, page band mat karo.' +
+              (lastFlushErr ? ' [' + esc(lastFlushErr) + ']' : '') + '</div>';
+    }
+  }
+  el.innerHTML = html;
+}
+setInterval(updateBanner, 3000);
+
+/* ---------------- Outbox: durable queue + batch sync ---------------- */
+
+var OUTBOX_KEY = 'plt_outbox_v1';
+var outbox = [];            // [{id, packId, station, operatorId, operatorName, hall, floor, ts}]
+var liveEntries = {};       // scanId -> screen pe dikhne wala entry
+var inflight = false, flushTimer = null, lastFlushErr = '';
+
+function outboxLoad() {
+  try { outbox = JSON.parse(localStorage.getItem(OUTBOX_KEY) || '[]') || []; } catch (e) { outbox = []; }
+}
+function outboxSave() {
+  try { localStorage.setItem(OUTBOX_KEY, JSON.stringify(outbox)); } catch (e) {}
+}
+function newScanId() { return 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+
+function enqueue(job) {
+  outbox.push(job);
+  outboxSave();
+  if (!flushTimer && !inflight) flushTimer = setTimeout(flush, CONFIG.BATCH_MS || 800);
+}
+
+function flush() {
+  flushTimer = null;
+  if (inflight || !outbox.length) return;
+  var batch = outbox.slice(0, CONFIG.BATCH_MAX || 40);
+  inflight = true;
+  updateConn();
+
+  var ctrl = window.AbortController ? new AbortController() : null;
+  var to = setTimeout(function () { if (ctrl) ctrl.abort(); }, CONFIG.TIMEOUT_MS || 45000);
+
+  fetch(CONFIG.API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },   // simple request: preflight nahi lagta
+    body: JSON.stringify({ action: 'scanBatch', scans: batch }),
+    signal: ctrl ? ctrl.signal : undefined
+  }).then(function (r) { return r.json(); })
+    .then(function (res) {
+      clearTimeout(to);
+      if (!res || res.ok === false) throw new Error((res && res.error) || 'Server error');
+      applyResults(batch, res.results || []);
+      lastFlushErr = ''; state.connected = true;
+    })
+    .catch(function (err) {
+      clearTimeout(to);
+      lastFlushErr = (err && err.message) || 'Network error';
+      state.connected = false;
+    })
+    .then(function () {
+      inflight = false;
+      updateConn(); render();
+      if (outbox.length) flushTimer = setTimeout(flush, lastFlushErr ? (CONFIG.RETRY_MS || 5000) : 200);
+    });
+}
+
+/** Server ke result ke hisaab se outbox saaf karta hai. Jis scan ka ack nahi aaya wo outbox me rehta hai. */
+function applyResults(batch, results) {
+  var byId = {};
+  results.forEach(function (r) { byId[r.id] = r; });
+  var done = {};
+  batch.forEach(function (j) {
+    var r = byId[j.id];
+    if (!r || r.status === 'error') return;               // ack nahi -> agli baar phir jaayega
+    done[j.id] = true;
+    var e = liveEntries[j.id];
+    if (r.status === 'rejected') {
+      if (e) { e.rejected = true; e.msg = r.msg || 'Rejected'; }
+      setBanner('error', j.packId + ': ' + (r.msg || 'Server ne reject kiya') + ' - Save NAHI hua.');
+      beep(false);
+    } else if (e) {
+      e.synced = true;
+    }
+    delete liveEntries[j.id];
+  });
+  outbox = outbox.filter(function (j) { return !done[j.id]; });
+  outboxSave();
+}
+
+function failedList() { return outbox; }       // retry bar + beforeunload isi se chalte hain
+function retryFailed() { if (!flushTimer) flush(); }
+
+/** Emergency: jo scan abhi tak Sheet me nahi gaye unki CSV. */
+function downloadOutbox() {
+  var rows = [['scanId', 'time', 'floor', 'hall', 'station', 'serial', 'empId', 'empName']];
+  outbox.forEach(function (j) {
+    rows.push([j.id, new Date(j.ts).toISOString(), j.floor, j.hall, j.station, j.packId, j.operatorId, j.operatorName]);
+  });
+  downloadCSV(rows, 'unsent-scans-' + Date.now() + '.csv');
+}
+
 function commitScan(code, station, emp) {
+  code = String(code || '').trim();
+
+  // 1) Serial hi hai na? BMS / cell ka code ho to log hi mat karo.
+  if (!isValidSerial(code)) {
+    flash('flash-error'); beep(false);
+    setBanner('error', 'Ye battery serial nahi hai: "' + code.slice(0, 40) +
+              '". BMS / cell ka sticker mat scan karo. Save NAHI hua.');
+    return;
+  }
+
   // Duplicate guard: same battery, same station, already logged this session.
   if (state.packs[code]) {
     var dup = state.packs[code].history.some(function (h) { return h.station === station; });
@@ -222,15 +351,17 @@ function commitScan(code, station, emp) {
   var warn = sequenceWarning(code, station);
   if (warn && !confirm(warn)) { flash('flash-error'); beep(false); render(); return; }
 
-  // Log locally first so the operator is never blocked by network latency.
+  // Local pe turant log - operator ko network ka wait nahi.
   var ts = Date.now();
+  var id = newScanId();
   if (!state.packs[code]) state.packs[code] = { id: code, currentStage: station, status: 'pending', history: [] };
   var entry = {
-    station: station, operatorId: emp.id, operatorName: emp.name,
-    timestamp: ts, result: 'pending', synced: false, failed: false
+    id: id, station: station, operatorId: emp.id, operatorName: emp.name,
+    timestamp: ts, result: 'pending', synced: false, failed: false, rejected: false
   };
   state.packs[code].history.push(entry);
   state.packs[code].currentStage = station;
+  liveEntries[id] = entry;
 
   state.lastScan = { packId: code, entry: entry };
   state.recentScans.unshift({ packId: code, station: station, operator: emp.name, time: ts, entry: entry });
@@ -239,46 +370,13 @@ function commitScan(code, station, emp) {
   var ck = station + '||' + emp.id.toLowerCase();
   state.sessionCount[ck] = (state.sessionCount[ck] || 0) + 1;
 
+  state.banner = null;
   flash('flash'); beep(true); render();
 
-  call('scan', {
-    packId: code, station: entry.station,
-    operatorId: entry.operatorId, operatorName: entry.operatorName,
-    hall: state.hall
-  }).then(function () {
-    entry.synced = true; render();
-  }, function (err) {
-    entry.failed = true; render();
-    alert('Not saved: ' + err.message + '\n\nBattery: ' + code +
-          '\nUse Retry held scans once the connection is back.');
-  });
-}
-
-function failedList() {
-  var out = [];
-  Object.keys(state.packs).forEach(function (pid) {
-    state.packs[pid].history.forEach(function (h) { if (h.failed && !h.synced) out.push({ packId: pid, entry: h }); });
-  });
-  return out;
-}
-
-function retryFailed() {
-  var jobs = failedList();
-  if (!jobs.length) { alert('Nothing to retry.'); return; }
-  var chain = Promise.resolve();
-  jobs.forEach(function (j) {
-    chain = chain.then(function () {
-      return call('scan', {
-        packId: j.packId, station: j.entry.station,
-        operatorId: j.entry.operatorId, operatorName: j.entry.operatorName,
-        hall: state.hall
-      }).then(function () { j.entry.synced = true; j.entry.failed = false; }, function () {});
-    });
-  });
-  chain.then(function () {
-    render();
-    var left = failedList().length;
-    alert(left ? (left + ' scan(s) still failing.') : 'All held scans saved.');
+  enqueue({
+    id: id, packId: code, station: station,
+    operatorId: emp.id, operatorName: emp.name,
+    hall: state.hall, floor: CONFIG.FLOOR, ts: ts
   });
 }
 
