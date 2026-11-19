@@ -49,6 +49,7 @@ function loadAll() {
     state.loading = false;
     render();
     startPolling();
+    if (isCommonHall()) dspInit();
     if (CONFIG.ENFORCE_SEQUENCE) {
       return call('init', { limit: CONFIG.LOG_LIMIT }).then(function (r2) {
         state.packs = buildPacks(r2.logs || []);
@@ -171,6 +172,14 @@ function handleUniversalScan(raw) {
   var parts = splitScan(raw);
   var station = parts.station;
   var rest = parts.rest;
+
+  // Common (Dispatch) page: station prefix na ho to Dispatch station maano.
+  // Badge ya LP serial nahi hai to wo Dispatch order ka barcode hai (dispatch.js).
+  if (isCommonHall()) {
+    station = station || commonStation();
+    var badgeTry = /^STAFF:/i.test(rest) ? rest.replace(/^STAFF:/i, '').trim() : rest;
+    if (!/^STAFF:/i.test(rest) && !matchStaff(badgeTry) && !isValidSerial(rest)) { dispatchScan(rest); return; }
+  }
 
   if (!station) {
     flash('flash-error'); beep(false);
@@ -502,6 +511,7 @@ function renderScan() {
       '</div>' +
       lastScanHtml + retryBar +
     '</div>' +
+    (isCommonHall() ? renderDispatchPanel() : '') +
     planPanel +
     board +
     '<div class="panel"><div class="panel-title">Scanned this session</div>' +
