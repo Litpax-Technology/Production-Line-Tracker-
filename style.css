@@ -370,3 +370,10 @@ body:has(.tabs) .range-btn.active{background:var(--accent);color:#fff;box-shadow
 .banner { padding: 10px 14px; border-radius: 8px; margin-bottom: 10px; font-size: 14px; font-weight: 600; }
 .banner.error { background: #fdecea; color: #b42318; border: 1px solid #f5c2bd; }
 .banner.warn  { background: #fff7e6; color: #8a5a00; border: 1px solid #f3d9a4; }
+
+/* Dispatch panel (Common hall) */
+.banner.ok   { background: #e6f4ea; color: #137333; border: 1px solid #b7e1c1; }
+.dsp-counter { margin-top: 14px; font-size: 32px; font-weight: 700; text-align: center; color: var(--accent, #4f46e5); }
+.dsp-track { height: 8px; background: #e8eaed; border-radius: 4px; overflow: hidden; margin: 4px 0 12px; }
+.dsp-bar { height: 100%; width: 0; background: #34a853; transition: width .2s; }
+.dsp-panel select { width: 100%; padding: 8px; font-size: 14px; border: 1px solid #dadce0; border-radius: 6px; background: #fff; }
