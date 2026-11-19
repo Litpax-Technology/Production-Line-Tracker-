@@ -165,8 +165,7 @@ function handleUniversalScan(raw) {
 
   if (!station) {
     flash('flash-error'); beep(false);
-    alert('No station on this scan.\n\nEither the scanner has no station prefix set, ' +
-          'or pick a station below for testing.');
+    setBanner('error', 'Scan pe station prefix nahi hai (scanner ka prefix check karo). Save NAHI hua.');
     return;
   }
 
@@ -184,8 +183,7 @@ function handleUniversalScan(raw) {
   var operator = state.stationEmp[station];
   if (!operator) {
     flash('flash-error'); beep(false);
-    alert('No employee signed in at ' + station + '.\n\n' +
-          'Scan an employee badge on this scanner first.');
+    setBanner('error', station + ' pe koi employee sign-in nahi hai - pehle employee ka badge scan karo. Save NAHI hua.');
     return;
   }
 
@@ -316,9 +314,9 @@ function renderScan() {
   var lastScanHtml = '';
   if (state.lastScan) {
     var e = state.lastScan.entry;
-    var sync = e.failed ? '<span class="sync error">NOT SAVED</span>'
-             : e.synced ? '<span class="sync saved">saved</span>'
-             : '<span class="sync saving">saving...</span>';
+    var sync = e.rejected ? '<span class="sync error">REJECTED</span>'
+             : e.synced ? '<span class="sync saved">saved &#10003;</span>'
+             : '<span class="sync saving">queued</span>';
     lastScanHtml =
       '<div class="last-scan">' +
         '<div><div class="id">' + esc(state.lastScan.packId) + '</div>' +
@@ -327,15 +325,16 @@ function renderScan() {
   }
 
   var rows = state.recentScans.map(function (r) {
-    var mark = r.entry.failed ? '<span class="sync error">!</span>'
-             : r.entry.synced ? '' : '<span class="sync saving">...</span>';
+    var mark = r.entry.rejected ? '<span class="sync error">REJECTED</span>'
+             : r.entry.synced ? '<span class="sync saved">&#10003;</span>' : '<span class="sync saving">queued</span>';
     return '<tr><td class="mono">' + esc(r.packId) + ' ' + mark + '</td><td>' + esc(r.station) +
            '</td><td>' + esc(r.operator) + '</td><td class="mono">' + fmtTime(r.time) + '</td></tr>';
   }).join('');
 
-  var failed = failedList().length;
+  var failed = lastFlushErr ? outbox.length : 0;
   var retryBar = failed
-    ? '<div style="margin-top:12px;"><button class="btn secondary" onclick="retryFailed()">Retry ' + failed + ' held scan(s)</button></div>'
+    ? '<div style="margin-top:12px;"><button class="btn secondary" onclick="retryFailed()">Retry ' + failed + ' held scan(s)</button> ' +
+      '<button class="btn secondary" onclick="downloadOutbox()">Unsent scans CSV</button></div>'
     : '';
 
   // Live board: one card per station in this hall, showing who is signed in
@@ -386,7 +385,8 @@ function renderScan() {
       : '<div class="empty">No plan for today yet.</div>') +
     '</div>';
 
-  return '<div class="panel scan-panel">' +
+  return '<div id="bannerBox"></div>' +
+    '<div class="panel scan-panel">' +
       '<div class="scan-box" id="scanBox">' +
         '<input id="universalScan" type="text" placeholder="Scan badge or battery" autocomplete="off" ' +
         'onkeydown="if(event.key===\'Enter\'){handleUniversalScan(this.value); this.value=\'\';}">' +
@@ -418,14 +418,17 @@ function render() {
   }
 
   content.innerHTML = renderScan();
+  updateBanner();
   var input = document.getElementById('universalScan');
   if (input) input.focus();
 }
 
 /* ---------------- Boot ---------------- */
 
+outboxLoad();                       // pichhle session ke unsent scans wapas
 render();
 loadAll();
+if (outbox.length) flush();
 
 // A scanner types wherever the focus is, so keep the scan box focused.
 document.addEventListener('click', function () {
