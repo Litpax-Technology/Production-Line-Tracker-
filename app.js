@@ -266,7 +266,7 @@ function flush() {
   updateConn();
 
   var ctrl = window.AbortController ? new AbortController() : null;
-  var to = setTimeout(function () { if (ctrl) ctrl.abort(); }, CONFIG.TIMEOUT_MS || 45000);
+  var to = setTimeout(function () { if (ctrl) ctrl.abort(); }, CONFIG.BATCH_TIMEOUT_MS || 90000);
 
   fetch(CONFIG.API_URL, {
     method: 'POST',
