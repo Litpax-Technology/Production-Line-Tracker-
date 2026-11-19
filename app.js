@@ -17,6 +17,15 @@ state = {
   } catch (e) {}
 })();
 
+/** Same naam ke stations (jaise 2 Dispatched rows, dono Common) ka ek hi card/entry. Dono codes chalte rahenge. */
+function uniqueStationNames(rows) {
+  var seen = {}, out = [];
+  rows.forEach(function (r) {
+    var k = String(r.name).trim().toLowerCase();
+    if (!seen[k]) { seen[k] = 1; out.push(r.name); }
+  });
+  return out;
+}
 /** Keep only items in the active hall. Empty hall on an item = shown everywhere. */
 function inHall(itemHall) {
   if (!state.hall) return true;
@@ -34,7 +43,7 @@ function loadAll() {
     state.sessionCount = res.todayCounts || {};
     var rows = res.stationRows || [];
     state.stationRows = rows.filter(function (r) { return inHall(r.hall); });
-    state.stations = state.stationRows.map(function (r) { return r.name; });
+    state.stations = uniqueStationNames(state.stationRows);
     state.staff = (res.staff || []).filter(function (s) { return inHall(s.hall); });
     state.plan = res.plan || [];
     state.loading = false;
@@ -65,7 +74,7 @@ function refreshLists() {
     state.sessionCount = res.todayCounts || {};
     var rows = res.stationRows || [];
     state.stationRows = rows.filter(function (r) { return inHall(r.hall); });
-    state.stations = state.stationRows.map(function (r) { return r.name; });
+    state.stations = uniqueStationNames(state.stationRows);
     state.staff = (res.staff || []).filter(function (s) { return inHall(s.hall); });
     state.plan = res.plan || [];
     render();
