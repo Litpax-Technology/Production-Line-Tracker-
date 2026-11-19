@@ -26,6 +26,17 @@ var CONFIG = {
     'Prismatic': ['3 Wheeler', 'Inverter', 'Solar']
   },
 
+  // Valid battery serial (regex). LP6036-0034 aur LP-6040-00001 dono chalenge.
+  // BMS QR / MAC / cell code reject honge. Khaali '' rakho to check band.
+  // NOTE: Apps Script ke SERIAL_RE se same rakhna.
+  SERIAL_PATTERN: '^LP-?\\d{4}-\\d{4,5}$',
+
+  // Scan sync: pehla scan itne ms baad batch me jaata hai; ek batch me max itne scan;
+  // fail hone par itne ms baad retry.
+  BATCH_MS: 800,
+  BATCH_MAX: 40,
+  RETRY_MS: 5000,
+
   // JSONP request timeout (ms).
   TIMEOUT_MS: 45000
 };
